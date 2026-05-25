@@ -108,7 +108,7 @@ export const generateWebsite = onCall(async (request) => {
   const prompt = sanitizeString(request.data.prompt)
   if (!prompt) throw new Error('Prompt is required')
 
-  const GEMINI_KEY = process.env.GEMINI_API_KEY
+  const GEMINI_KEY = geminiApiKey.value()
 
   if (!GEMINI_KEY) {
     return generateMockResponse(prompt)
