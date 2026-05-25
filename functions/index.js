@@ -1,9 +1,30 @@
 import { onCall } from 'firebase-functions/v2/https'
+import { onDocumentWritten } from 'firebase-functions/v2/firestore'
+import { defineSecret } from 'firebase-functions/params'
 import { initializeApp } from 'firebase-admin/app'
-import { getFirestore } from 'firebase-admin/firestore'
+import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import Stripe from 'stripe'
 
 initializeApp()
 const db = getFirestore()
+
+const geminiApiKey = defineSecret('GEMINI_API_KEY')
+const stripeSecretKey = defineSecret('STRIPE_SECRET_KEY')
+
+function getStripe() {
+  const key = process.env.STRIPE_SECRET_KEY
+  if (!key) return null
+  return new Stripe(key, { apiVersion: '2025-03-31' })
+}
+
+function getWebhookSecret() {
+  return process.env.STRIPE_WEBHOOK_SECRET || ''
+}
+
+const PLANS_PRICES = {
+  pro: { priceId: process.env.STRIPE_PRO_PRICE_ID || '', credits: 100, projects: 20 },
+  business: { priceId: process.env.STRIPE_BUSINESS_PRICE_ID || '', credits: 500, projects: 100 },
+}
 
 function requireFields(data, fields) {
   for (const field of fields) {
@@ -18,10 +39,35 @@ function sanitizeString(val) {
   return val.slice(0, 2000).trim()
 }
 
+const PLAN_LIMITS = {
+  free: { projects: 3, aiGenerations: 5 },
+  pro: { projects: 20, aiGenerations: 100 },
+  business: { projects: 100, aiGenerations: 500 },
+}
+
 export const createProject = onCall(async (request) => {
   if (!request.auth) throw new Error('Unauthorized')
   requireFields(request.data, ['userId'])
   if (request.data.userId !== request.auth.uid) throw new Error('Forbidden')
+
+  const userDoc = await db.collection('users').doc(request.auth.uid).get()
+  if (!userDoc.exists) {
+    await db.collection('users').doc(request.auth.uid).set({
+      uid: request.auth.uid,
+      email: request.auth.token.email || '',
+      name: request.auth.token.name || '',
+      role: 'user',
+      createdAt: Date.now(),
+      usage: { projectCount: 0, aiGenerationsUsed: 0, plan: 'free' },
+    })
+  }
+
+  const usage = (await db.collection('users').doc(request.auth.uid).get()).data()?.usage || { projectCount: 0, plan: 'free' }
+  const limits = PLAN_LIMITS[usage.plan] || PLAN_LIMITS.free
+
+  if (usage.projectCount >= limits.projects) {
+    throw new Error(`You've reached the ${usage.plan} plan limit of ${limits.projects} projects. Upgrade to create more.`)
+  }
 
   const project = {
     name: sanitizeString(request.data.name) || 'Untitled Project',
@@ -45,6 +91,11 @@ export const createProject = onCall(async (request) => {
   }
 
   const ref = await db.collection('projects').add(project)
+
+  await db.collection('users').doc(request.auth.uid).update({
+    'usage.projectCount': FieldValue.increment(1),
+  })
+
   return { id: ref.id, ...project }
 })
 
@@ -101,7 +152,9 @@ export const listProjects = onCall(async (request) => {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 })
 
-export const generateWebsite = onCall(async (request) => {
+export const generateWebsite = onCall(
+  { secrets: [geminiApiKey] },
+  async (request) => {
   if (!request.auth) throw new Error('Unauthorized')
   requireFields(request.data, ['prompt'])
 
@@ -169,6 +222,81 @@ export const publishProject = onCall(async (request) => {
   })
 
   return { url, success: true }
+})
+
+export const createCheckoutSession = onCall({ secrets: [stripeSecretKey] }, async (request) => {
+  if (!request.auth) throw new Error('Unauthorized')
+  requireFields(request.data, ['priceId'])
+
+  const { priceId, successUrl, cancelUrl } = request.data
+  const userId = request.auth.uid
+
+  const userDoc = await db.collection('users').doc(userId).get()
+  if (!userDoc.exists) throw new Error('User not found')
+
+  const stripe = getStripe()
+  if (!stripe) throw new Error('Stripe not configured')
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    payment_method_types: ['card'],
+    line_items: [{ price: priceId, quantity: 1 }],
+    client_reference_id: userId,
+    customer_email: userDoc.data().email,
+    metadata: { userId },
+    success_url: successUrl || 'https://webforge-ai-fd9e8.web.app/dashboard?upgrade=success',
+    cancel_url: cancelUrl || 'https://webforge-ai-fd9e8.web.app/dashboard?upgrade=cancelled',
+  })
+
+  return { url: session.url, sessionId: session.id }
+})
+
+export const stripeWebhook = onCall({ secrets: [stripeSecretKey] }, async (request) => {
+  const stripe = getStripe()
+  if (!stripe) throw new Error('Stripe not configured')
+
+  const sig = request.rawRequest?.headers['stripe-signature']
+  if (!sig || !getWebhookSecret()) throw new Error('Missing signature')
+
+  let event
+  try {
+    event = stripe.webhooks.constructEvent(request.rawBody, sig, getWebhookSecret())
+  } catch {
+    throw new Error('Invalid signature')
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object
+    const userId = session.metadata?.userId || session.client_reference_id
+    const priceId = session.line_items?.data?.[0]?.price?.id
+
+    let plan = 'free'
+    for (const [key, config] of Object.entries(PLANS_PRICES)) {
+      if (config.priceId === priceId) { plan = key; break }
+    }
+
+    if (userId && plan !== 'free') {
+      await db.collection('users').doc(userId).update({
+        'usage.plan': plan,
+        stripeCustomerId: session.customer,
+        stripeSubscriptionId: session.subscription,
+      })
+    }
+  }
+
+  if (event.type === 'customer.subscription.deleted') {
+    const subscription = event.data.object
+    const userId = subscription.metadata?.userId
+
+    if (userId) {
+      await db.collection('users').doc(userId).update({
+        'usage.plan': 'free',
+        stripeSubscriptionId: null,
+      })
+    }
+  }
+
+  return { received: true }
 })
 
 function generateStaticHtml(project) {

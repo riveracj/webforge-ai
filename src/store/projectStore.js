@@ -10,10 +10,10 @@ import {
   query,
   where,
   orderBy,
-  setDoc,
 } from 'firebase/firestore'
 import { db } from '../config/firebase'
-import { defaultProjectStructure } from '../utils/constants'
+import { defaultProjectStructure, PLANS } from '../utils/constants'
+import { useAuthStore } from './authStore'
 
 export const useProjectStore = create((set, get) => ({
   projects: [],
@@ -39,6 +39,15 @@ export const useProjectStore = create((set, get) => ({
   },
 
   createProject: async (userId, data) => {
+    const { profile, canCreateProject } = useAuthStore.getState()
+    if (!canCreateProject()) {
+      const plan = profile?.usage?.plan || 'free'
+      const limit = PLANS[plan]?.projects || 0
+      const msg = `Free plan limited to ${limit} projects. Upgrade to Pro for more.`
+      set({ error: msg, loading: false })
+      throw new Error(msg)
+    }
+
     set({ loading: true })
     try {
       const projectData = {
@@ -52,6 +61,9 @@ export const useProjectStore = create((set, get) => ({
       }
       const docRef = await addDoc(collection(db, 'projects'), projectData)
       const newProject = { id: docRef.id, ...projectData }
+
+      await useAuthStore.getState().incrementProjectCount()
+
       set((s) => ({ projects: [newProject, ...s.projects], loading: false }))
       return newProject
     } catch (err) {
@@ -116,6 +128,15 @@ export const useProjectStore = create((set, get) => ({
   },
 
   cloneProject: async (projectId, userId) => {
+    const { profile, canCreateProject } = useAuthStore.getState()
+    if (!canCreateProject()) {
+      const plan = profile?.usage?.plan || 'free'
+      const limit = PLANS[plan]?.projects || 0
+      const msg = `Free plan limited to ${limit} projects. Upgrade to Pro for more.`
+      set({ error: msg, loading: false })
+      throw new Error(msg)
+    }
+
     set({ loading: true })
     try {
       const original = await getDoc(doc(db, 'projects', projectId))
@@ -132,6 +153,9 @@ export const useProjectStore = create((set, get) => ({
       }
       const docRef = await addDoc(collection(db, 'projects'), cloneData)
       const clone = { id: docRef.id, ...cloneData }
+
+      await useAuthStore.getState().incrementProjectCount()
+
       set((s) => ({ projects: [clone, ...s.projects], loading: false }))
       return clone
     } catch (err) {

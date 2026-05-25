@@ -23,4 +23,8 @@ export const api = {
     regenerate: (sectionId, prompt) =>
       callFunction('regenerateSection', { sectionId, prompt }),
   },
+
+  billing: {
+    createCheckoutSession: (data) => callFunction('createCheckoutSession', data),
+  },
 }

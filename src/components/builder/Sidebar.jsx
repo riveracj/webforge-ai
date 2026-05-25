@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useBuilderStore } from '../../store/builderStore'
-import { SECTION_TYPES } from '../../utils/constants'
+import { useAuthStore } from '../../store/authStore'
+import { SECTION_TYPES, PLANS } from '../../utils/constants'
 import { generateSection } from '../../utils/aiEngine'
 import {
   Layout,
@@ -9,9 +10,11 @@ import {
   GripVertical,
   Search,
   Plus,
+  AlertTriangle,
 } from 'lucide-react'
 import Button from '../ui/Button'
 import Input from '../ui/Input'
+import UpgradePrompt from '../billing/UpgradePrompt'
 
 const SECTION_ICONS = {
   Layout, Sparkles, ChevronDown, GripVertical, Search, Plus,
@@ -19,10 +22,16 @@ const SECTION_ICONS = {
 
 export default function Sidebar() {
   const { sections, addSection } = useBuilderStore()
+  const { profile, canGenerateAi, incrementAiGenerations, getPlan } = useAuthStore()
   const [activeTab, setActiveTab] = useState('add')
   const [aiPrompt, setAiPrompt] = useState('')
   const [generating, setGenerating] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [showUpgrade, setShowUpgrade] = useState(false)
+
+  const plan = getPlan()
+  const planLimit = PLANS[plan]?.aiGenerations || 0
+  const usage = profile?.usage?.aiGenerationsUsed || 0
 
   const filteredSections = SECTION_TYPES.filter((s) =>
     s.label.toLowerCase().includes(searchQuery.toLowerCase())
@@ -41,12 +50,19 @@ export default function Sidebar() {
 
   const handleAIGenerate = async () => {
     if (!aiPrompt.trim()) return
+
+    if (!canGenerateAi()) {
+      setShowUpgrade(true)
+      return
+    }
+
     setGenerating(true)
     try {
       const result = await generateSection(aiPrompt, sections)
       if (result) {
         addSection(result)
         setAiPrompt('')
+        await incrementAiGenerations()
       }
     } catch (err) {
       console.error(err)
@@ -114,17 +130,32 @@ export default function Sidebar() {
               AI Generate
             </h3>
             <div className="space-y-2">
-              <Input
-                placeholder="Describe a section..."
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAIGenerate()}
-              />
-              <Button size="sm" className="w-full" onClick={handleAIGenerate} disabled={generating}>
-                {generating ? 'Generating...' : 'Generate Section'}
-              </Button>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>Usage: {usage}/{planLimit}</span>
+                <span className="capitalize">{plan} plan</span>
+              </div>
+              {usage >= planLimit ? (
+                <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+                  <AlertTriangle size={14} className="flex-shrink-0" />
+                  <span>AI limit reached. <button onClick={() => setShowUpgrade(true)} className="underline font-medium">Upgrade</button></span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Describe a section..."
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAIGenerate()}
+                  />
+                  <Button size="sm" className="w-full" onClick={handleAIGenerate} disabled={generating}>
+                    {generating ? 'Generating...' : 'Generate Section'}
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
+
+          {showUpgrade && <UpgradePrompt onClose={() => setShowUpgrade(false)} />}
         </div>
       )}
 
