@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut,
   onAuthStateChanged,
 } from 'firebase/auth'
@@ -52,6 +54,27 @@ export const useAuthStore = create((set, get) => ({
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password)
       const docSnap = await getDoc(doc(db, 'users', cred.user.uid))
+      set({ user: cred.user, profile: docSnap.data(), loading: false })
+      return docSnap.data()
+    } catch (err) {
+      set({ error: err.message, loading: false })
+      throw err
+    }
+  },
+
+  signInWithGoogle: async () => {
+    set({ error: null, loading: true })
+    try {
+      const provider = new GoogleAuthProvider()
+      const cred = await signInWithPopup(auth, provider)
+      const { uid, displayName, email, photoURL } = cred.user
+      const docSnap = await getDoc(doc(db, 'users', uid))
+      if (!docSnap.exists()) {
+        const profile = { uid, email, name: displayName || email?.split('@')[0] || 'User', photoURL, role: 'user', createdAt: Date.now(), usage: DEFAULT_USAGE }
+        await setDoc(doc(db, 'users', uid), profile)
+        set({ user: cred.user, profile, loading: false })
+        return profile
+      }
       set({ user: cred.user, profile: docSnap.data(), loading: false })
       return docSnap.data()
     } catch (err) {
