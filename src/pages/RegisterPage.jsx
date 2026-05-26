@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import Button from '../components/ui/Button'
@@ -9,8 +9,12 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const { register, signInWithGoogle, loading } = useAuthStore()
+  const { user, register, signInWithGoogle, loading } = useAuthStore()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (user) navigate('/dashboard', { replace: true })
+  }, [user])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
