@@ -363,24 +363,33 @@ function generateSectionData(sectionType, business, promptLower) {
 }
 
 export async function generateWebsite(prompt) {
-  const fallback = generateWebsiteFromPrompt(prompt)
+  const fallbackSections = generateWebsiteFromPrompt(prompt)
 
   try {
     const backendResult = await api.generate.website({ prompt })
     const data = backendResult.data || backendResult
+
+    if (data && data.html) {
+      console.log('✅ Using Gemini backend (HTML generation)')
+      return { html: data.html, sections: fallbackSections }
+    }
+
     if (Array.isArray(data) && data.length > 0) {
-      console.log('✅ Using Gemini backend')
-      return data.map((s, i) => ({
-        ...s,
-        id: s.id || `section-${Date.now()}-${i}`,
-      }))
+      console.log('✅ Using Gemini backend (section generation)')
+      return {
+        html: null,
+        sections: data.map((s, i) => ({
+          ...s,
+          id: s.id || `section-${Date.now()}-${i}`,
+        })),
+      }
     }
   } catch (e) {
     console.warn('⚠️ Gemini backend failed, using client-side:', e?.message)
   }
 
   console.log('⚙️ Using client-side generation')
-  return fallback
+  return { html: null, sections: fallbackSections }
 }
 
 export async function generateSection(prompt, existingSections = []) {

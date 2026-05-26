@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ExternalLink, Edit3, Copy, Trash2, Globe, Clock } from 'lucide-react'
 import Button from '../ui/Button'
 
-export default function ProjectCard({ project, onClone, onDelete }) {
+export default function ProjectCard({ project, onClone, onDelete, onClick }) {
   const navigate = useNavigate()
   const [showDelete, setShowDelete] = useState(false)
 
@@ -33,11 +33,11 @@ export default function ProjectCard({ project, onClone, onDelete }) {
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
           <Button
             size="sm"
-            onClick={() => navigate(`/builder/${project.id}`)}
+            onClick={() => onClick ? onClick(project) : navigate(`/builder/${project.id}`)}
             className="!bg-white !text-gray-900 hover:!bg-gray-100 shadow-lg"
           >
             <Edit3 size={14} className="mr-1" />
-            Edit
+            Open
           </Button>
         </div>
       </div>
@@ -55,11 +55,11 @@ export default function ProjectCard({ project, onClone, onDelete }) {
 
         <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
           <button
-            onClick={() => navigate(`/builder/${project.id}`)}
+            onClick={() => onClick ? onClick(project) : navigate(`/builder/${project.id}`)}
             className="flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-600 transition-colors"
           >
             <Edit3 size={14} />
-            Edit
+            Open
           </button>
           <button
             onClick={() => onClone(project.id)}

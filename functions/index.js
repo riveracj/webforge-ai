@@ -164,11 +164,26 @@ export const generateWebsite = onCall(
   const GEMINI_KEY = geminiApiKey?.value?.() || process.env.GEMINI_API_KEY || ''
 
   if (!GEMINI_KEY) {
-    console.warn('No Gemini API key found, using mock data')
-    return generateMockResponse(prompt)
+    console.warn('No Gemini API key found, using fallback HTML')
+    return { html: generateFallbackHtml(prompt) }
   }
 
-  const systemPrompt = 'You are an expert web designer AI. Generate a complete website as a JSON array of sections. Each section must have: id, type, componentType, props. Available types: hero, services, features, testimonials, pricing, contact, footer, gallery, team, faq, stats, cta. Return ONLY valid JSON. No markdown, no code blocks.'
+  const systemPrompt = `You are an expert web designer AI. Generate a complete, production-quality single-page HTML website based on the user's description.
+
+Requirements:
+- Return ONLY the raw HTML code inside \`\`\`html ... \`\`\` markers
+- Use modern HTML5, CSS3, and vanilla JavaScript
+- All CSS must be in a <style> tag inside <head>
+- All JS must be in a <script> tag before </body>
+- Use a clean, professional design with responsive layout
+- Include smooth scrolling, hover effects, and modern typography
+- Use a color scheme that fits the business/industry from the prompt
+- Include Font Awesome or inline SVG icons
+- Make it a complete, ready-to-use landing page
+- Do NOT include any markdown outside the code block
+
+The HTML must be a complete page with: <!DOCTYPE html>, <html>, <head>, <body> tags.
+Use Google Fonts (Inter, Poppins, or similar) for typography.`
 
   try {
     const res = await fetch(
@@ -177,8 +192,8 @@ export const generateWebsite = onCall(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `${systemPrompt}\n\nUser Prompt: ${prompt}` }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
+          contents: [{ parts: [{ text: `${systemPrompt}\n\nUser request: ${prompt}` }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
         }),
       }
     )
@@ -186,25 +201,25 @@ export const generateWebsite = onCall(
 
     if (data.error) {
       console.error('Gemini API returned error:', JSON.stringify(data.error))
-      return generateMockResponse(prompt)
+      return { html: generateFallbackHtml(prompt) }
     }
 
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
     if (!text) {
       console.error('Gemini returned empty response:', JSON.stringify(data))
-      return generateMockResponse(prompt)
+      return { html: generateFallbackHtml(prompt) }
     }
 
-    const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
-    const parsed = JSON.parse(cleaned)
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      console.error('Gemini returned invalid section array')
-      return generateMockResponse(prompt)
+    const match = text.match(/```html\s*([\s\S]*?)```/)
+    const html = match ? match[1].trim() : text.replace(/```\s*/g, '').trim()
+    if (!html || html.length < 100) {
+      console.error('Gemini returned invalid HTML')
+      return { html: generateFallbackHtml(prompt) }
     }
-    return parsed
+    return { html }
   } catch (err) {
     console.error('Gemini API error:', err.message || err)
-    return generateMockResponse(prompt)
+    return { html: generateFallbackHtml(prompt) }
   }
 })
 
@@ -318,6 +333,8 @@ export const stripeWebhook = onCall({ secrets: [stripeSecretKey] }, async (reque
 })
 
 function generateStaticHtml(project) {
+  if (project.generatedHtml) return project.generatedHtml
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -338,69 +355,67 @@ function escHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function generateMockResponse(prompt) {
-  return [
-    {
-      id: 'section-hero',
-      type: 'hero',
-      componentType: 'hero',
-      props: {
-        headline: 'Build Your Dream Website',
-        subheadline: 'Create stunning websites with AI in minutes',
-        ctaText: 'Get Started Free',
-        ctaLink: '#',
-        backgroundStyle: 'gradient',
-        alignment: 'center',
-      },
-    },
-    {
-      id: 'section-features',
-      type: 'features',
-      componentType: 'features',
-      props: {
-        title: 'Powerful Features',
-        subtitle: 'Everything you need to succeed online',
-        features: [
-          { title: 'AI Powered', description: 'Generate websites with AI', icon: 'Zap' },
-          { title: 'Drag & Drop', description: 'Easy visual editor', icon: 'Check' },
-          { title: 'Responsive', description: 'Looks great on all devices', icon: 'Smartphone' },
-        ],
-      },
-    },
-    {
-      id: 'section-pricing',
-      type: 'pricing',
-      componentType: 'pricing',
-      props: {
-        title: 'Simple Pricing',
-        subtitle: 'Start free, upgrade when you need',
-        plans: [
-          { name: 'Free', price: '$0', features: ['1 Website', 'Basic sections'], cta: 'Get Started' },
-          { name: 'Pro', price: '$19', features: ['10 Websites', 'All sections', 'Custom domain'], cta: 'Try Pro', highlighted: true },
-          { name: 'Business', price: '$49', features: ['Unlimited', 'Everything', 'Priority support'], cta: 'Contact' },
-        ],
-      },
-    },
-    {
-      id: 'section-contact',
-      type: 'contact',
-      componentType: 'contact',
-      props: {
-        title: 'Get In Touch',
-        subtitle: "We'd love to hear from you",
-        email: 'hello@example.com',
-        phone: '+1 234 567 890',
-        address: '123 Main St',
-      },
-    },
-    {
-      id: 'section-footer',
-      type: 'footer',
-      componentType: 'footer',
-      props: {
-        text: '© 2025 WebForge AI. All rights reserved.',
-        links: [{ label: 'Privacy', url: '#' }, { label: 'Terms', url: '#' }],
-      },
-    },
-  ]
+function generateFallbackHtml(prompt) {
+  const name = prompt.split(/\.|,|\n/)[0].slice(0, 40) || 'Your Website'
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escHtml(name)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; line-height: 1.6; color: #1f2937; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+    header { background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; padding: 100px 0 80px; text-align: center; }
+    header h1 { font-size: 3rem; font-weight: 800; margin-bottom: 16px; }
+    header p { font-size: 1.25rem; opacity: 0.9; max-width: 600px; margin: 0 auto 32px; }
+    .btn { display: inline-block; padding: 14px 36px; background: white; color: #4f46e5; border-radius: 8px; font-weight: 600; text-decoration: none; transition: transform 0.2s; }
+    .btn:hover { transform: translateY(-2px); }
+    section { padding: 80px 0; }
+    section:nth-child(even) { background: #f9fafb; }
+    h2 { font-size: 2rem; font-weight: 700; text-align: center; margin-bottom: 48px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; }
+    .card { background: white; padding: 32px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); text-align: center; }
+    .card i { font-size: 2rem; color: #4f46e5; margin-bottom: 16px; }
+    .card h3 { font-size: 1.25rem; margin-bottom: 8px; }
+    .card p { color: #6b7280; }
+    footer { background: #111827; color: #9ca3af; text-align: center; padding: 40px 0; }
+    @media (max-width: 768px) { header h1 { font-size: 2rem; } header { padding: 60px 0 40px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>${escHtml(name)}</h1>
+      <p>${escHtml(prompt.slice(0, 120))}</p>
+      <a href="#" class="btn">Get Started</a>
+    </div>
+  </header>
+  <section>
+    <div class="container">
+      <h2>Features</h2>
+      <div class="grid">
+        <div class="card"><i class="fas fa-bolt"></i><h3>Fast & Modern</h3><p>Built with cutting-edge technology for maximum performance.</p></div>
+        <div class="card"><i class="fas fa-shield-alt"></i><h3>Secure</h3><p>Enterprise-grade security to protect your data.</p></div>
+        <div class="card"><i class="fas fa-mobile-alt"></i><h3>Responsive</h3><p>Looks great on any device, from phones to desktops.</p></div>
+      </div>
+    </div>
+  </section>
+  <section>
+    <div class="container">
+      <h2>Contact Us</h2>
+      <p style="text-align:center;color:#6b7280;margin-bottom:32px;">We'd love to hear from you. Get in touch today.</p>
+      <div style="text-align:center;"><a href="mailto:hello@example.com" style="color:#4f46e5;font-weight:600;">hello@example.com</a></div>
+    </div>
+  </section>
+  <footer>
+    <div class="container">
+      <p>&copy; 2025 ${escHtml(name)}. All rights reserved.</p>
+    </div>
+  </footer>
+</body>
+</html>`
 }

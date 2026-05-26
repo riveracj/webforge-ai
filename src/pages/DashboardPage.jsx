@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useProjectStore } from '../store/projectStore'
-import { Plus, Sparkles, FolderOpen, AlertTriangle, Lightbulb, Loader2 } from 'lucide-react'
+import { Plus, Sparkles, FolderOpen, AlertTriangle, Lightbulb, ArrowRight } from 'lucide-react'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import Modal from '../components/ui/Modal'
@@ -10,15 +10,13 @@ import LoadingSpinner from '../components/ui/LoadingSpinner'
 import EmptyState from '../components/ui/EmptyState'
 import ProjectCard from '../components/dashboard/ProjectCard'
 import UpgradePrompt from '../components/billing/UpgradePrompt'
-import AIPromptModal from '../components/builder/AIPromptModal'
 import { PLANS } from '../utils/constants'
-import { generateWebsite } from '../utils/aiEngine'
 
 const QUICK_PROMPTS = [
-  { label: 'SaaS Landing Page', prompt: 'A modern SaaS landing page with hero, features, pricing, testimonials, and contact sections' },
-  { label: 'Restaurant Site', prompt: 'A restaurant website with menu, gallery, reservations, and location' },
-  { label: 'Portfolio', prompt: 'A creative portfolio for a designer with gallery, services, and contact' },
-  { label: 'Startup', prompt: 'A tech startup website with team, features, stats, and contact' },
+  { label: 'SaaS Landing Page', prompt: 'A modern SaaS landing page with hero, features, pricing, testimonials, and contact sections. Clean, professional design.' },
+  { label: 'Restaurant Site', prompt: 'A beautiful restaurant website with menu showcase, gallery of dishes, reservation form, and location.' },
+  { label: 'Portfolio', prompt: 'A creative portfolio for a designer with project showcase, skills, and contact form. Minimal design.' },
+  { label: 'Startup', prompt: 'A tech startup website with hero, team members, features grid, stats, and contact. Bold design.' },
 ]
 
 export default function DashboardPage() {
@@ -26,11 +24,9 @@ export default function DashboardPage() {
   const { projects, loading, fetchProjects, createProject, cloneProject, deleteProject, error } = useProjectStore()
   const navigate = useNavigate()
   const [showNewModal, setShowNewModal] = useState(false)
-  const [showAIModal, setShowAIModal] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [creating, setCreating] = useState(false)
   const [showUpgrade, setShowUpgrade] = useState(false)
-  const [quickGenerating, setQuickGenerating] = useState(null)
 
   const plan = profile?.usage?.plan || 'free'
   const projectCount = profile?.usage?.projectCount || 0
@@ -54,31 +50,9 @@ export default function DashboardPage() {
     setCreating(false)
   }
 
-  const [genError, setGenError] = useState('')
-
-  const handleQuickGenerate = async (prompt) => {
+  const handleQuickGenerate = (prompt) => {
     if (atLimit) { setShowUpgrade(true); return }
-    setQuickGenerating(prompt)
-    setGenError('')
-    try {
-      const sections = await generateWebsite(prompt)
-      if (!sections || sections.length === 0) {
-        setGenError('AI generation returned no sections. Try a more detailed prompt.')
-        setQuickGenerating(null)
-        return
-      }
-      const project = await createProject(user.uid, {
-        name: prompt.split('.')[0].slice(0, 40) || 'AI Generated Site',
-        pages: [{ id: 'page-1', name: 'Home', slug: 'home', sections }],
-      })
-      navigate(`/builder/${project.id}`)
-    } catch (err) { setGenError(err.message || 'Generation failed'); console.error(err) }
-    setQuickGenerating(null)
-  }
-
-  const handleAICreate = () => {
-    if (atLimit) { setShowUpgrade(true); return }
-    setShowAIModal(true)
+    navigate(`/generate?prompt=${encodeURIComponent(prompt)}`)
   }
 
   const handleClone = async (projectId) => {
@@ -88,6 +62,14 @@ export default function DashboardPage() {
 
   const handleDelete = async (projectId) => {
     await deleteProject(projectId)
+  }
+
+  const handleOpenSite = (project) => {
+    if (project.generatedHtml) {
+      navigate(`/site/${project.id}`)
+    } else {
+      navigate(`/builder/${project.id}`)
+    }
   }
 
   return (
@@ -105,18 +87,17 @@ export default function DashboardPage() {
             <span className="text-gray-300">|</span>
             <span>{projectCount}/{projectLimit} projects</span>
           </div>
-          <Button onClick={() => setShowAIModal(true)}>
+          <Button onClick={() => navigate('/generate')}>
             <Sparkles size={18} className="mr-1" />
             New with AI
           </Button>
         </div>
       </div>
 
-      {(error || genError) && (
+      {error && (
         <div className="flex items-center gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
           <AlertTriangle size={16} />
-          {genError || error}
-          <button onClick={() => setGenError('')} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+          {error}
         </div>
       )}
 
@@ -141,14 +122,9 @@ export default function DashboardPage() {
               <button
                 key={item.label}
                 onClick={() => handleQuickGenerate(item.prompt)}
-                disabled={quickGenerating !== null}
-                className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-100 rounded-xl hover:border-indigo-300 hover:bg-indigo-50 transition-all text-center disabled:opacity-50"
+                className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-100 rounded-xl hover:border-indigo-300 hover:bg-indigo-50 transition-all text-center group"
               >
-                {quickGenerating === item.prompt ? (
-                  <Loader2 size={20} className="text-indigo-500 animate-spin" />
-                ) : (
-                  <Sparkles size={20} className="text-indigo-500" />
-                )}
+                <Sparkles size={20} className="text-indigo-500 group-hover:scale-110 transition-transform" />
                 <span className="text-sm font-medium text-gray-700">{item.label}</span>
               </button>
             ))}
@@ -174,7 +150,7 @@ export default function DashboardPage() {
           title="No projects yet"
           description="Generate your first website with AI in seconds"
           actionLabel="Generate with AI"
-          onAction={() => setShowAIModal(true)}
+          onAction={() => navigate('/generate')}
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -184,6 +160,7 @@ export default function DashboardPage() {
               project={project}
               onClone={handleClone}
               onDelete={handleDelete}
+              onClick={() => handleOpenSite(project)}
             />
           ))}
         </div>
@@ -210,18 +187,6 @@ export default function DashboardPage() {
         </div>
       </Modal>
 
-      {showAIModal && (
-        <AIPromptModal
-          onClose={() => setShowAIModal(false)}
-          onUseSections={async (sections) => {
-            const project = await createProject(user.uid, {
-              name: 'AI Generated Website',
-              pages: [{ id: 'page-1', name: 'Home', slug: 'home', sections }],
-            })
-            navigate(`/builder/${project.id}`)
-          }}
-        />
-      )}
       {showUpgrade && <UpgradePrompt onClose={() => setShowUpgrade(false)} />}
     </div>
   )
