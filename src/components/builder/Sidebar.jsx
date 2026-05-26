@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useBuilderStore } from '../../store/builderStore'
 import { useAuthStore } from '../../store/authStore'
 import { SECTION_TYPES, PLANS } from '../../utils/constants'
-import { generateSection } from '../../utils/aiEngine'
+import { generateSection, generateWebsite } from '../../utils/aiEngine'
 import {
   Layout,
   Sparkles,
@@ -11,6 +11,8 @@ import {
   Search,
   Plus,
   AlertTriangle,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react'
 import Button from '../ui/Button'
 import Input from '../ui/Input'
@@ -21,13 +23,15 @@ const SECTION_ICONS = {
 }
 
 export default function Sidebar() {
-  const { sections, addSection } = useBuilderStore()
+  const { sections, addSection, setSections, setPages } = useBuilderStore()
   const { profile, canGenerateAi, incrementAiGenerations, getPlan } = useAuthStore()
   const [activeTab, setActiveTab] = useState('add')
   const [aiPrompt, setAiPrompt] = useState('')
   const [generating, setGenerating] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [showUpgrade, setShowUpgrade] = useState(false)
+  const [regeneratingAll, setRegeneratingAll] = useState(false)
+  const [regeneratePrompt, setRegeneratePrompt] = useState('')
 
   const plan = getPlan()
   const planLimit = PLANS[plan]?.aiGenerations || 0
@@ -68,6 +72,23 @@ export default function Sidebar() {
       console.error(err)
     }
     setGenerating(false)
+  }
+
+  const handleRegenerateAll = async () => {
+    if (!regeneratePrompt.trim()) return
+    if (!canGenerateAi()) { setShowUpgrade(true); return }
+
+    setRegeneratingAll(true)
+    try {
+      const newSections = await generateWebsite(regeneratePrompt)
+      setSections(newSections)
+      setPages([{ id: 'page-1', name: 'Home', slug: 'home', sections: newSections }])
+      await incrementAiGenerations()
+      setRegeneratePrompt('')
+    } catch (err) {
+      console.error(err)
+    }
+    setRegeneratingAll(false)
   }
 
   return (
@@ -124,34 +145,76 @@ export default function Sidebar() {
             </div>
           </div>
 
-          <div className="border-t border-gray-200 pt-4">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1">
-              <Sparkles size={12} />
-              AI Generate
-            </h3>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs text-gray-500">
-                <span>Usage: {usage}/{planLimit}</span>
-                <span className="capitalize">{plan} plan</span>
+          <div className="border-t border-gray-200 pt-4 space-y-4">
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+                <Sparkles size={12} />
+                Add Section with AI
+              </h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>Usage: {usage}/{planLimit}</span>
+                  <span className="capitalize">{plan} plan</span>
+                </div>
+                {usage >= planLimit ? (
+                  <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+                    <AlertTriangle size={14} className="flex-shrink-0" />
+                    <span>AI limit reached. <button onClick={() => setShowUpgrade(true)} className="underline font-medium">Upgrade</button></span>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="Describe a section..."
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAIGenerate()}
+                    />
+                    <Button size="sm" className="w-full" onClick={handleAIGenerate} disabled={generating}>
+                      {generating ? 'Generating...' : 'Generate Section'}
+                    </Button>
+                  </div>
+                )}
               </div>
-              {usage >= planLimit ? (
-                <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
-                  <AlertTriangle size={14} className="flex-shrink-0" />
-                  <span>AI limit reached. <button onClick={() => setShowUpgrade(true)} className="underline font-medium">Upgrade</button></span>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <Input
-                    placeholder="Describe a section..."
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAIGenerate()}
-                  />
-                  <Button size="sm" className="w-full" onClick={handleAIGenerate} disabled={generating}>
-                    {generating ? 'Generating...' : 'Generate Section'}
-                  </Button>
-                </div>
-              )}
+            </div>
+
+            <div className="border-t border-gray-100 pt-4">
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+                <RefreshCw size={12} />
+                Regenerate All
+              </h3>
+              <p className="text-xs text-gray-400 mb-2">
+                Describe how you want your entire page to look
+              </p>
+              <div className="space-y-2">
+                {usage >= planLimit ? (
+                  <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+                    <AlertTriangle size={14} className="flex-shrink-0" />
+                    <span>AI limit reached. <button onClick={() => setShowUpgrade(true)} className="underline font-medium">Upgrade</button></span>
+                  </div>
+                ) : (
+                  <>
+                    <textarea
+                      value={regeneratePrompt}
+                      onChange={(e) => setRegeneratePrompt(e.target.value)}
+                      placeholder="e.g., A modern dark-themed SaaS page with hero, features, testimonials and pricing..."
+                      rows={3}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                    />
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      onClick={handleRegenerateAll}
+                      disabled={regeneratingAll || !regeneratePrompt.trim()}
+                    >
+                      {regeneratingAll ? (
+                        <><Loader2 size={14} className="mr-1 animate-spin" /> Regenerating...</>
+                      ) : (
+                        <><RefreshCw size={14} className="mr-1" /> Regenerate All Sections</>
+                      )}
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 

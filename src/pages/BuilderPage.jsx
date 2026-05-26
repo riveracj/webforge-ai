@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useProjectStore } from '../store/projectStore'
 import { useBuilderStore } from '../store/builderStore'
@@ -14,6 +14,7 @@ import { generateWebsite } from '../utils/aiEngine'
 export default function BuilderPage() {
   const { projectId } = useParams()
   const [searchParams] = useSearchParams()
+  const location = useLocation()
   const { user } = useAuthStore()
   const { currentProject, loading, getProject, updateProject } = useProjectStore()
   const { sections, setSections, setPages, reset } = useBuilderStore()
@@ -21,6 +22,8 @@ export default function BuilderPage() {
   const [initialized, setInitialized] = useState(false)
 
   useEffect(() => {
+    const routeSections = location.state?.sections
+
     reset()
     if (projectId && projectId !== 'new') {
       getProject(projectId).then((project) => {
@@ -30,6 +33,10 @@ export default function BuilderPage() {
         }
         setInitialized(true)
       })
+    } else if (routeSections) {
+      setSections(routeSections)
+      setPages([{ id: 'page-1', name: 'Home', slug: 'home', sections: routeSections }])
+      setInitialized(true)
     } else {
       const mode = searchParams.get('mode')
       if (mode === 'ai') {

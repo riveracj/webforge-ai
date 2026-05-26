@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useProjectStore } from '../store/projectStore'
-import { Plus, Sparkles, FolderOpen, AlertTriangle } from 'lucide-react'
+import { Plus, Sparkles, FolderOpen, AlertTriangle, Lightbulb, Loader2 } from 'lucide-react'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import Modal from '../components/ui/Modal'
@@ -10,16 +10,28 @@ import LoadingSpinner from '../components/ui/LoadingSpinner'
 import EmptyState from '../components/ui/EmptyState'
 import ProjectCard from '../components/dashboard/ProjectCard'
 import UpgradePrompt from '../components/billing/UpgradePrompt'
+import AIPromptModal from '../components/builder/AIPromptModal'
 import { PLANS } from '../utils/constants'
+import { generateWebsite } from '../utils/aiEngine'
+
+const QUICK_PROMPTS = [
+  { label: 'SaaS Landing Page', prompt: 'A modern SaaS landing page with hero, features, pricing, testimonials, and contact sections' },
+  { label: 'Restaurant Site', prompt: 'A restaurant website with menu, gallery, reservations, and location' },
+  { label: 'Portfolio', prompt: 'A creative portfolio for a designer with gallery, services, and contact' },
+  { label: 'Startup', prompt: 'A tech startup website with team, features, stats, and contact' },
+]
 
 export default function DashboardPage() {
   const { user, profile } = useAuthStore()
   const { projects, loading, fetchProjects, createProject, cloneProject, deleteProject, error } = useProjectStore()
+  const { setSections, setPages } = useBuilderStore()
   const navigate = useNavigate()
   const [showNewModal, setShowNewModal] = useState(false)
+  const [showAIModal, setShowAIModal] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [creating, setCreating] = useState(false)
   const [showUpgrade, setShowUpgrade] = useState(false)
+  const [quickGenerating, setQuickGenerating] = useState(null)
 
   const plan = profile?.usage?.plan || 'free'
   const projectCount = profile?.usage?.projectCount || 0
@@ -32,37 +44,38 @@ export default function DashboardPage() {
 
   const handleCreate = async () => {
     if (!projectName.trim()) return
-    if (atLimit) {
-      setShowNewModal(false)
-      setShowUpgrade(true)
-      return
-    }
+    if (atLimit) { setShowNewModal(false); setShowUpgrade(true); return }
     setCreating(true)
     try {
       const project = await createProject(user.uid, { name: projectName.trim() })
       setShowNewModal(false)
       setProjectName('')
       navigate(`/builder/${project.id}`)
-    } catch (err) {
-      console.error(err)
-    }
+    } catch (err) { console.error(err) }
     setCreating(false)
   }
 
+  const handleQuickGenerate = async (prompt) => {
+    if (atLimit) { setShowUpgrade(true); return }
+    setQuickGenerating(prompt)
+    try {
+      const sections = await generateWebsite(prompt)
+      const project = await createProject(user.uid, {
+        name: prompt.split('.')[0].slice(0, 40) || 'AI Generated Site',
+        pages: [{ id: 'page-1', name: 'Home', slug: 'home', sections }],
+      })
+      navigate(`/builder/${project.id}`)
+    } catch (err) { console.error(err) }
+    setQuickGenerating(null)
+  }
+
   const handleAICreate = () => {
-    setShowNewModal(false)
-    if (atLimit) {
-      setShowUpgrade(true)
-      return
-    }
-    navigate('/builder/new?mode=ai')
+    if (atLimit) { setShowUpgrade(true); return }
+    setShowAIModal(true)
   }
 
   const handleClone = async (projectId) => {
-    if (atLimit) {
-      setShowUpgrade(true)
-      return
-    }
+    if (atLimit) { setShowUpgrade(true); return }
     await cloneProject(projectId, user.uid)
   }
 
@@ -85,9 +98,9 @@ export default function DashboardPage() {
             <span className="text-gray-300">|</span>
             <span>{projectCount}/{projectLimit} projects</span>
           </div>
-          <Button onClick={() => setShowNewModal(true)} disabled={atLimit}>
-            <Plus size={18} className="mr-1" />
-            New Project
+          <Button onClick={() => setShowAIModal(true)}>
+            <Sparkles size={18} className="mr-1" />
+            New with AI
           </Button>
         </div>
       </div>
@@ -105,21 +118,55 @@ export default function DashboardPage() {
             <AlertTriangle size={16} />
             <span>You've reached the {plan} plan limit of {projectLimit} projects.</span>
           </div>
-          <Button size="sm" onClick={() => setShowUpgrade(true)}>
-            Upgrade
-          </Button>
+          <Button size="sm" onClick={() => setShowUpgrade(true)}>Upgrade</Button>
         </div>
       )}
 
+      {!atLimit && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <Lightbulb size={16} className="text-indigo-500" />
+            <h2 className="text-sm font-semibold text-gray-700">Quick Generate</h2>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {QUICK_PROMPTS.map((item) => (
+              <button
+                key={item.label}
+                onClick={() => handleQuickGenerate(item.prompt)}
+                disabled={quickGenerating !== null}
+                className="flex flex-col items-center gap-2 p-4 bg-white border-2 border-gray-100 rounded-xl hover:border-indigo-300 hover:bg-indigo-50 transition-all text-center disabled:opacity-50"
+              >
+                {quickGenerating === item.prompt ? (
+                  <Loader2 size={20} className="text-indigo-500 animate-spin" />
+                ) : (
+                  <Sparkles size={20} className="text-indigo-500" />
+                )}
+                <span className="text-sm font-medium text-gray-700">{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-semibold text-gray-700">All Projects</h2>
+        <button
+          onClick={() => setShowNewModal(true)}
+          className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+        >
+          + New Blank
+        </button>
+      </div>
+
       {loading ? (
-        <LoadingSpinner size="lg" className="pt-20" />
+        <LoadingSpinner size="lg" className="pt-10" />
       ) : projects.length === 0 ? (
         <EmptyState
           icon={FolderOpen}
           title="No projects yet"
-          description="Create your first website project to get started with WebForge AI"
-          actionLabel="Create Project"
-          onAction={() => setShowNewModal(true)}
+          description="Generate your first website with AI in seconds"
+          actionLabel="Generate with AI"
+          onAction={() => setShowAIModal(true)}
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -134,7 +181,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <Modal isOpen={showNewModal} onClose={() => setShowNewModal(false)} title="Create New Project">
+      <Modal isOpen={showNewModal} onClose={() => setShowNewModal(false)} title="Create Blank Project">
         <div className="space-y-4">
           {atLimit && (
             <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
@@ -149,23 +196,24 @@ export default function DashboardPage() {
             onChange={(e) => setProjectName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
           />
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={handleAICreate}
-              disabled={atLimit}
-            >
-              <Sparkles size={16} className="mr-1" />
-              Generate with AI
-            </Button>
-            <Button className="flex-1" onClick={handleCreate} disabled={creating || !projectName.trim() || atLimit}>
-              {creating ? 'Creating...' : 'Create Blank'}
-            </Button>
-          </div>
+          <Button className="w-full" onClick={handleCreate} disabled={creating || !projectName.trim() || atLimit}>
+            {creating ? 'Creating...' : 'Create Project'}
+          </Button>
         </div>
       </Modal>
 
+      {showAIModal && (
+        <AIPromptModal
+          onClose={() => setShowAIModal(false)}
+          onUseSections={async (sections) => {
+            const project = await createProject(user.uid, {
+              name: 'AI Generated Website',
+              pages: [{ id: 'page-1', name: 'Home', slug: 'home', sections }],
+            })
+            navigate(`/builder/${project.id}`)
+          }}
+        />
+      )}
       {showUpgrade && <UpgradePrompt onClose={() => setShowUpgrade(false)} />}
     </div>
   )

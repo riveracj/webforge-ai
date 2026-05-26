@@ -43,6 +43,14 @@ export const useBuilderStore = create((set, get) => ({
     set({ sections })
   },
 
+  replaceSection: (sectionId, newSection) => {
+    const sections = get().sections.map((s) =>
+      s.id === sectionId ? newSection : s
+    )
+    get().pushHistory(sections)
+    set({ sections })
+  },
+
   removeSection: (sectionId) => {
     const sections = get().sections.filter((s) => s.id !== sectionId)
     get().pushHistory(sections)
