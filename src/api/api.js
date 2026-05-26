@@ -18,10 +18,6 @@ export const api = {
 
   generate: {
     website: (prompt) => callFunction('generateWebsite', { prompt }),
-    section: (prompt, existingSections) =>
-      callFunction('generateSection', { prompt, existingSections }),
-    regenerate: (sectionId, prompt) =>
-      callFunction('regenerateSection', { sectionId, prompt }),
   },
 
   billing: {

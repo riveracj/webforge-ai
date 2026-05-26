@@ -347,18 +347,22 @@ function generateSectionData(sectionType, business, promptLower) {
 }
 
 export async function generateWebsite(prompt) {
-  const result = generateWebsiteFromPrompt(prompt)
-  return result
+  const fallback = generateWebsiteFromPrompt(prompt)
 
   try {
     const backendResult = await api.generate.website({ prompt })
-    return (backendResult.data || []).map((s, i) => ({
-      ...s,
-      id: s.id || `section-${Date.now()}-${i}`,
-    }))
+    const data = backendResult.data || backendResult
+    if (Array.isArray(data) && data.length > 0) {
+      return data.map((s, i) => ({
+        ...s,
+        id: s.id || `section-${Date.now()}-${i}`,
+      }))
+    }
   } catch {
-    return result
+    // Backend unavailable — use client-side
   }
+
+  return fallback
 }
 
 export async function generateSection(prompt, existingSections = []) {
