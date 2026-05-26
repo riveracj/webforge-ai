@@ -4,7 +4,6 @@ import { useAuthStore } from '../../store/authStore'
 import {
   LayoutDashboard,
   FolderOpen,
-  Grid3X3,
   Settings,
   LogOut,
   Menu,
@@ -15,7 +14,6 @@ import {
 
 const NAV_ITEMS = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/dashboard/templates', label: 'Templates', icon: Grid3X3 },
 ]
 
 export default function DashboardLayout() {

@@ -10,7 +10,6 @@ const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const BuilderPage = lazy(() => import('./pages/BuilderPage'))
-const TemplatesPage = lazy(() => import('./pages/TemplatesPage'))
 const PreviewPage = lazy(() => import('./pages/PreviewPage'))
 
 function PageFallback() {
@@ -53,7 +52,7 @@ export default function App() {
           }
         >
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/dashboard/templates" element={<TemplatesPage />} />
+
         </Route>
 
         <Route
