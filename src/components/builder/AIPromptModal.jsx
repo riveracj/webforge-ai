@@ -18,6 +18,7 @@ const SUGGESTIONS = [
 export default function AIPromptModal({ onClose, onUseSections }) {
   const [prompt, setPrompt] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [genError, setGenError] = useState('')
   const [step, setStep] = useState('prompt')
   const [generatedSections, setGeneratedSections] = useState([])
   const { setSections, setPages } = useBuilderStore()
@@ -25,12 +26,19 @@ export default function AIPromptModal({ onClose, onUseSections }) {
   const handleGenerate = async () => {
     if (!prompt.trim()) return
     setGenerating(true)
+    setGenError('')
 
     try {
       const sections = await generateWebsite(prompt)
+      if (!sections || sections.length === 0) {
+        setGenError('No sections generated. Try a more detailed prompt.')
+        setGenerating(false)
+        return
+      }
       setGeneratedSections(sections)
       setStep('preview')
     } catch (err) {
+      setGenError(err.message || 'Generation failed')
       console.error(err)
     }
     setGenerating(false)
@@ -71,6 +79,11 @@ export default function AIPromptModal({ onClose, onUseSections }) {
 
         {step === 'prompt' && (
           <div className="p-6 space-y-5">
+            {genError && (
+              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                <span>{genError}</span>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Describe your website

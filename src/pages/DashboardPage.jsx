@@ -54,17 +54,25 @@ export default function DashboardPage() {
     setCreating(false)
   }
 
+  const [genError, setGenError] = useState('')
+
   const handleQuickGenerate = async (prompt) => {
     if (atLimit) { setShowUpgrade(true); return }
     setQuickGenerating(prompt)
+    setGenError('')
     try {
       const sections = await generateWebsite(prompt)
+      if (!sections || sections.length === 0) {
+        setGenError('AI generation returned no sections. Try a more detailed prompt.')
+        setQuickGenerating(null)
+        return
+      }
       const project = await createProject(user.uid, {
         name: prompt.split('.')[0].slice(0, 40) || 'AI Generated Site',
         pages: [{ id: 'page-1', name: 'Home', slug: 'home', sections }],
       })
       navigate(`/builder/${project.id}`)
-    } catch (err) { console.error(err) }
+    } catch (err) { setGenError(err.message || 'Generation failed'); console.error(err) }
     setQuickGenerating(null)
   }
 
@@ -104,10 +112,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {error && (
+      {(error || genError) && (
         <div className="flex items-center gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
           <AlertTriangle size={16} />
-          {error}
+          {genError || error}
+          <button onClick={() => setGenError('')} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
         </div>
       )}
 
