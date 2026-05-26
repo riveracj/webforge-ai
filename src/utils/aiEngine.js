@@ -195,8 +195,9 @@ function extractBusinessInfo(prompt) {
     'music', 'artist', 'designer', 'developer', 'startup', 'nonprofit', 'charity', 'church', 'event',
     'travel', 'hotel', 'spa', 'salon', 'barber', 'wedding', 'fashion', 'food', 'coffee']
 
+  const promptLower = prompt.toLowerCase()
   for (const ind of industries) {
-    if (lower.includes(ind)) {
+    if (promptLower.includes(ind)) {
       info.industry = ind
       break
     }
@@ -205,7 +206,7 @@ function extractBusinessInfo(prompt) {
   const stylesList = ['modern', 'minimal', 'bold', 'creative', 'elegant', 'professional', 'playful',
     'dark', 'light', 'colorful', 'corporate', 'luxury', 'simple', 'clean']
   for (const style of stylesList) {
-    if (lower.includes(style)) {
+    if (promptLower.includes(style)) {
       info.style = style
       break
     }
