@@ -161,13 +161,14 @@ export const generateWebsite = onCall(
   const prompt = sanitizeString(request.data.prompt)
   if (!prompt) throw new Error('Prompt is required')
 
-  const GEMINI_KEY = geminiApiKey.value()
+  const GEMINI_KEY = geminiApiKey?.value?.() || process.env.GEMINI_API_KEY || ''
 
   if (!GEMINI_KEY) {
+    console.warn('No Gemini API key found, using mock data')
     return generateMockResponse(prompt)
   }
 
-  const systemPrompt = 'You are an expert web designer AI. Generate a complete website as a JSON array of sections. Each section must have: id, type, componentType, props. Available types: hero, services, features, testimonials, pricing, contact, footer, gallery, team, faq, stats, cta. Return ONLY valid JSON.'
+  const systemPrompt = 'You are an expert web designer AI. Generate a complete website as a JSON array of sections. Each section must have: id, type, componentType, props. Available types: hero, services, features, testimonials, pricing, contact, footer, gallery, team, faq, stats, cta. Return ONLY valid JSON. No markdown, no code blocks.'
 
   try {
     const res = await fetch(
@@ -176,16 +177,33 @@ export const generateWebsite = onCall(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `${systemPrompt}\n\nUser: ${prompt}` }] }],
+          contents: [{ parts: [{ text: `${systemPrompt}\n\nUser Prompt: ${prompt}` }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
         }),
       }
     )
     const data = await res.json()
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '[]'
-    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim()
-    return JSON.parse(cleaned)
+
+    if (data.error) {
+      console.error('Gemini API returned error:', JSON.stringify(data.error))
+      return generateMockResponse(prompt)
+    }
+
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) {
+      console.error('Gemini returned empty response:', JSON.stringify(data))
+      return generateMockResponse(prompt)
+    }
+
+    const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
+    const parsed = JSON.parse(cleaned)
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      console.error('Gemini returned invalid section array')
+      return generateMockResponse(prompt)
+    }
+    return parsed
   } catch (err) {
-    console.error('Gemini API error:', err)
+    console.error('Gemini API error:', err.message || err)
     return generateMockResponse(prompt)
   }
 })

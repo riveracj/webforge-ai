@@ -161,21 +161,36 @@ const SECTION_BLUEPRINTS = {
 
 function generateWebsiteFromPrompt(prompt) {
   const lower = prompt.toLowerCase()
+  const business = extractBusinessInfo(prompt)
+  const pageStructure = determinePageStructure(lower)
+  const name = business.name || 'Your Business'
   const sections = []
 
-  const business = extractBusinessInfo(prompt)
-
-  const pageStructure = determinePageStructure(lower)
+  const sectionHeadlines = {
+    hero: business.name
+      ? { headline: `Welcome to ${business.name}`, subheadline: business.industry ? `Your trusted ${business.industry} partner` : 'Built for you' }
+      : { headline: 'Build Something Great', subheadline: prompt.slice(0, 80) },
+    features: { title: `Why ${name}`, subtitle: 'Everything you need to succeed' },
+    services: { title: 'What We Offer' },
+    pricing: { title: 'Simple Pricing' },
+    cta: { headline: `Ready to Work with ${name}?` },
+    contact: { title: 'Get In Touch' },
+    stats: { title: `${name} by the Numbers` },
+    team: { title: `Meet the ${name} Team` },
+    gallery: { title: 'Our Work' },
+    faq: { title: 'Frequently Asked Questions' },
+  }
 
   for (const sectionType of pageStructure) {
     const blueprint = SECTION_BLUEPRINTS[sectionType]
     if (blueprint) {
+      const ctx = sectionHeadlines[sectionType] || {}
       const data = generateSectionData(sectionType, business, lower)
-      sections.push(blueprint(data))
+      sections.push(blueprint({ ...data, ...ctx }))
     }
   }
 
-  sections.push(SECTION_BLUEPRINTS.footer({ text: `© 2025 ${business.name || 'WebForge AI'}. All rights reserved.` }))
+  sections.push(SECTION_BLUEPRINTS.footer({ text: `© 2025 ${name}. All rights reserved.` }))
 
   return sections.map((s, i) => ({
     ...s,
@@ -354,15 +369,17 @@ export async function generateWebsite(prompt) {
     const backendResult = await api.generate.website({ prompt })
     const data = backendResult.data || backendResult
     if (Array.isArray(data) && data.length > 0) {
+      console.log('✅ Using Gemini backend')
       return data.map((s, i) => ({
         ...s,
         id: s.id || `section-${Date.now()}-${i}`,
       }))
     }
-  } catch {
-    // Backend unavailable — use client-side
+  } catch (e) {
+    console.warn('⚠️ Gemini backend failed, using client-side:', e?.message)
   }
 
+  console.log('⚙️ Using client-side generation')
   return fallback
 }
 
