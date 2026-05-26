@@ -17,7 +17,7 @@ export const api = {
   },
 
   generate: {
-    website: (prompt) => callFunction('generateWebsite', { prompt }),
+    website: (data) => callFunction('generateWebsite', data),
   },
 
   billing: {
