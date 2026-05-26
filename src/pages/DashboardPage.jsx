@@ -24,7 +24,6 @@ const QUICK_PROMPTS = [
 export default function DashboardPage() {
   const { user, profile } = useAuthStore()
   const { projects, loading, fetchProjects, createProject, cloneProject, deleteProject, error } = useProjectStore()
-  const { setSections, setPages } = useBuilderStore()
   const navigate = useNavigate()
   const [showNewModal, setShowNewModal] = useState(false)
   const [showAIModal, setShowAIModal] = useState(false)
