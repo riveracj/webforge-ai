@@ -1,4 +1,4 @@
-import { onCall } from 'firebase-functions/v2/https'
+import { onCall, onRequest } from 'firebase-functions/v2/https'
 import { onDocumentWritten } from 'firebase-functions/v2/firestore'
 import { defineSecret } from 'firebase-functions/params'
 import { initializeApp } from 'firebase-admin/app'
@@ -24,6 +24,18 @@ function getWebhookSecret() {
 const PLANS_PRICES = {
   pro: { priceId: process.env.STRIPE_PRO_PRICE_ID || '', credits: 100, projects: 20 },
   business: { priceId: process.env.STRIPE_BUSINESS_PRICE_ID || '', credits: 500, projects: 100 },
+}
+
+const CREDIT_PACKS = {
+  starter: { credits: 50,  price: 5,  stripePriceId: process.env.STRIPE_CREDIT_STARTER_PRICE_ID || 'price_starter' },
+  popular: { credits: 200, price: 15, stripePriceId: process.env.STRIPE_CREDIT_POPULAR_PRICE_ID || 'price_popular' },
+  pro:     { credits: 500, price: 30, stripePriceId: process.env.STRIPE_CREDIT_PRO_PRICE_ID || 'price_pro_pack' },
+}
+
+const MODELS = {
+  'gemini-2.5-flash-lite': { credits: 1, apiName: 'gemini-2.5-flash-lite' },
+  'gemini-2.5-flash':      { credits: 2, apiName: 'gemini-2.5-flash' },
+  'gemini-2.0-pro':        { credits: 5, apiName: 'gemini-2.0-pro' },
 }
 
 function requireFields(data, fields) {
@@ -90,11 +102,11 @@ export const createProject = onCall(async (request) => {
       name: request.auth.token.name || '',
       role: 'user',
       createdAt: Date.now(),
-      usage: { projectCount: 0, aiGenerationsUsed: 0, plan: 'free' },
+      usage: { projectCount: 0, aiGenerationsUsed: 0, plan: 'free', freeCreditsTotal: 10, freeCreditsUsed: 0, purchasedCredits: 0 },
     })
   }
-
-  const usage = (await db.collection('users').doc(request.auth.uid).get()).data()?.usage || { projectCount: 0, plan: 'free' }
+  const userSnap = await db.collection('users').doc(request.auth.uid).get()
+  const usage = userSnap.data()?.usage || { projectCount: 0, plan: 'free' }
   const limits = PLAN_LIMITS[usage.plan] || PLAN_LIMITS.free
 
   if (usage.projectCount >= limits.projects) {
@@ -183,6 +195,13 @@ export const generateWebsite = onCall(
   const currentHtml = sanitizeHtmlContent(request.data.currentHtml)
   if (!prompt) throw new Error('Prompt is required')
 
+  const modelId = request.data.model || 'gemini-2.5-flash-lite'
+  const modelConfig = MODELS[modelId]
+  if (!modelConfig) throw new Error(`Unknown model: ${modelId}`)
+  const creditsNeeded = modelConfig.credits
+
+  await deductCredits(request.auth.uid, creditsNeeded)
+
   checkRateLimit(request.auth.uid, 5, 60000)
   await checkDailyLimit(request.auth.uid)
 
@@ -228,7 +247,7 @@ Use Google Fonts (Inter, Poppins, or similar) for typography.`
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelConfig.apiName}:generateContent?key=${GEMINI_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -271,6 +290,22 @@ Use Google Fonts (Inter, Poppins, or similar) for typography.`
   }
 })
 
+export const getCreditBalance = onCall(async (request) => {
+  if (!request.auth) throw new Error('Unauthorized')
+  const snap = await db.collection('users').doc(request.auth.uid).get()
+  if (!snap.exists) throw new Error('User not found')
+  const usage = snap.data().usage || {}
+  const freeAvail = (usage.freeCreditsTotal || 0) - (usage.freeCreditsUsed || 0)
+  return {
+    freeCreditsTotal: usage.freeCreditsTotal || 0,
+    freeCreditsUsed: usage.freeCreditsUsed || 0,
+    freeAvailable: Math.max(0, freeAvail),
+    purchasedCredits: usage.purchasedCredits || 0,
+    total: Math.max(0, freeAvail) + (usage.purchasedCredits || 0),
+    aiGenerationsUsed: usage.aiGenerationsUsed || 0,
+  }
+})
+
 export const publishProject = onCall(async (request) => {
   if (!request.auth) throw new Error('Unauthorized')
   requireFields(request.data, ['projectId'])
@@ -307,9 +342,9 @@ export const publishProject = onCall(async (request) => {
 
 export const createCheckoutSession = onCall({ secrets: [stripeSecretKey] }, async (request) => {
   if (!request.auth) throw new Error('Unauthorized')
-  requireFields(request.data, ['priceId'])
+  requireFields(request.data, ['type', 'priceId'])
 
-  const { priceId, successUrl, cancelUrl } = request.data
+  const { type, priceId, successUrl, cancelUrl } = request.data
   const userId = request.auth.uid
 
   const userDoc = await db.collection('users').doc(userId).get()
@@ -318,13 +353,29 @@ export const createCheckoutSession = onCall({ secrets: [stripeSecretKey] }, asyn
   const stripe = getStripe()
   if (!stripe) throw new Error('Stripe not configured')
 
+  if (type === 'credits') {
+    const packId = request.data.packId
+    if (!packId || !CREDIT_PACKS[packId]) throw new Error('Invalid credit pack')
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: [{ price: priceId, quantity: 1 }],
+      client_reference_id: userId,
+      customer_email: userDoc.data().email,
+      metadata: { userId, type: 'credit_purchase', packId, credits: CREDIT_PACKS[packId].credits },
+      success_url: successUrl || 'https://webforge-ai-fd9e8.web.app/dashboard?credits=purchased',
+      cancel_url: cancelUrl || 'https://webforge-ai-fd9e8.web.app/dashboard?credits=cancelled',
+    })
+    return { url: session.url, sessionId: session.id }
+  }
+
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     payment_method_types: ['card'],
     line_items: [{ price: priceId, quantity: 1 }],
     client_reference_id: userId,
     customer_email: userDoc.data().email,
-    metadata: { userId },
+    metadata: { userId, type: 'plan_upgrade' },
     success_url: successUrl || 'https://webforge-ai-fd9e8.web.app/dashboard?upgrade=success',
     cancel_url: cancelUrl || 'https://webforge-ai-fd9e8.web.app/dashboard?upgrade=cancelled',
   })
@@ -332,53 +383,100 @@ export const createCheckoutSession = onCall({ secrets: [stripeSecretKey] }, asyn
   return { url: session.url, sessionId: session.id }
 })
 
-export const stripeWebhook = onCall({ secrets: [stripeSecretKey] }, async (request) => {
+export const stripeWebhook = onRequest({ secrets: [stripeSecretKey] }, async (req, res) => {
   const stripe = getStripe()
-  if (!stripe) throw new Error('Stripe not configured')
+  if (!stripe) { res.status(500).json({ error: 'Stripe not configured' }); return }
 
-  const sig = request.rawRequest?.headers['stripe-signature']
-  if (!sig || !getWebhookSecret()) throw new Error('Missing signature')
+  const sig = req.headers['stripe-signature']
+  if (!sig || !getWebhookSecret()) { res.status(400).json({ error: 'Missing signature' }); return }
 
   let event
   try {
-    event = stripe.webhooks.constructEvent(request.rawBody, sig, getWebhookSecret())
-  } catch {
-    throw new Error('Invalid signature')
+    const rawBody = req.rawBody
+    event = stripe.webhooks.constructEvent(rawBody, sig, getWebhookSecret())
+  } catch (err) {
+    res.status(400).json({ error: `Invalid signature: ${err.message}` })
+    return
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object
-    const userId = session.metadata?.userId || session.client_reference_id
-    const priceId = session.line_items?.data?.[0]?.price?.id
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object
+      const userId = session.metadata?.userId || session.client_reference_id
+      const sessionType = session.metadata?.type
 
-    let plan = 'free'
-    for (const [key, config] of Object.entries(PLANS_PRICES)) {
-      if (config.priceId === priceId) { plan = key; break }
+      if (sessionType === 'credit_purchase') {
+        const creditsToAdd = parseInt(session.metadata?.credits || '0')
+        if (userId && creditsToAdd > 0) {
+          await db.collection('users').doc(userId).update({
+            'usage.purchasedCredits': FieldValue.increment(creditsToAdd),
+          })
+          await db.collection('creditPurchases').add({
+            userId,
+            amount: creditsToAdd,
+            price: session.amount_total ? session.amount_total / 100 : 0,
+            stripePaymentIntentId: session.payment_intent,
+            packId: session.metadata?.packId || '',
+            createdAt: FieldValue.serverTimestamp(),
+          })
+        }
+      } else {
+        const priceId = session.line_items?.data?.[0]?.price?.id
+        let plan = 'free'
+        for (const [key, config] of Object.entries(PLANS_PRICES)) {
+          if (config.priceId === priceId) { plan = key; break }
+        }
+        if (userId && plan !== 'free') {
+          const signupCredits = plan === 'business' ? 500 : 100
+          await db.collection('users').doc(userId).update({
+            'usage.plan': plan,
+            'usage.freeCreditsTotal': FieldValue.increment(signupCredits),
+            stripeCustomerId: session.customer,
+            stripeSubscriptionId: session.subscription,
+          })
+        }
+      }
     }
 
-    if (userId && plan !== 'free') {
-      await db.collection('users').doc(userId).update({
-        'usage.plan': plan,
-        stripeCustomerId: session.customer,
-        stripeSubscriptionId: session.subscription,
-      })
+    if (event.type === 'customer.subscription.deleted') {
+      const subscription = event.data.object
+      const userId = subscription.metadata?.userId
+      if (userId) {
+        await db.collection('users').doc(userId).update({
+          'usage.plan': 'free',
+          stripeSubscriptionId: null,
+        })
+      }
     }
+  } catch (err) {
+    console.error('Webhook handler error:', err)
   }
 
-  if (event.type === 'customer.subscription.deleted') {
-    const subscription = event.data.object
-    const userId = subscription.metadata?.userId
-
-    if (userId) {
-      await db.collection('users').doc(userId).update({
-        'usage.plan': 'free',
-        stripeSubscriptionId: null,
-      })
-    }
-  }
-
-  return { received: true }
+  res.json({ received: true })
 })
+
+async function deductCredits(userId, amount) {
+  const userRef = db.collection('users').doc(userId)
+  const snap = await userRef.get()
+  if (!snap.exists) throw new Error('User not found')
+  const usage = snap.data().usage || {}
+  const freeAvail = (usage.freeCreditsTotal || 0) - (usage.freeCreditsUsed || 0)
+  const purchased = usage.purchasedCredits || 0
+  const total = Math.max(0, freeAvail) + purchased
+  if (total < amount) throw new Error(`Insufficient credits. Need ${amount}, have ${total}.`)
+
+  const updates = {}
+  if (freeAvail >= amount) {
+    updates['usage.freeCreditsUsed'] = FieldValue.increment(amount)
+  } else if (freeAvail > 0) {
+    updates['usage.freeCreditsUsed'] = FieldValue.increment(freeAvail)
+    updates['usage.purchasedCredits'] = FieldValue.increment(-(amount - freeAvail))
+  } else {
+    updates['usage.purchasedCredits'] = FieldValue.increment(-amount)
+  }
+  updates['usage.aiGenerationsUsed'] = FieldValue.increment(1)
+  await userRef.update(updates)
+}
 
 function generateStaticHtml(project) {
   if (project.generatedHtml) return project.generatedHtml

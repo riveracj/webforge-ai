@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Sparkles, Loader2, CheckCircle, AlertTriangle, ArrowLeft } from 'lucide-react'
+import { Sparkles, Loader2, CheckCircle, AlertTriangle, ArrowLeft, Coins } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useProjectStore } from '../store/projectStore'
 import { generateWebsite } from '../utils/aiEngine'
-import { PLANS } from '../utils/constants'
+import { MODELS, SIGNUP_CREDIT_GRANTS } from '../utils/constants'
 import Button from '../components/ui/Button'
+import ModelSelector from '../components/generation/ModelSelector'
+import BuyCreditsModal from '../components/billing/BuyCreditsModal'
 
 const STEPS = [
   { label: 'Analyzing your request', desc: 'Understanding what you want to build' },
@@ -26,12 +28,14 @@ const QUICK_PROMPTS = [
 export default function GeneratePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { user, profile, canGenerateAi, incrementAiGenerations } = useAuthStore()
+  const { user, profile, canGenerateAi, canAffordGeneration, getCreditBalance, deductCredits, incrementAiGenerations } = useAuthStore()
   const { createProject } = useProjectStore()
   const [prompt, setPrompt] = useState(searchParams.get('prompt') || '')
   const [generating, setGenerating] = useState(false)
   const [currentStep, setCurrentStep] = useState(-1)
   const [error, setError] = useState('')
+  const [selectedModel, setSelectedModel] = useState(searchParams.get('model') || 'gemini-2.5-flash-lite')
+  const [showBuyModal, setShowBuyModal] = useState(false)
   const generatingRef = useRef(false)
 
   useEffect(() => {
@@ -42,10 +46,18 @@ export default function GeneratePage() {
 
   const handleGenerate = async () => {
     if (!prompt.trim() || generatingRef.current) return
+
     if (!canGenerateAi()) {
       setError('You have used all your AI generations. Upgrade to Pro for more.')
       return
     }
+
+    const modelConfig = MODELS.find(m => m.id === selectedModel) || MODELS[0]
+    if (!canAffordGeneration(modelConfig.credits)) {
+      setError(`Insufficient credits. This model costs ${modelConfig.credits} credit(s). Buy more credits to continue.`)
+      return
+    }
+
     generatingRef.current = true
     setGenerating(true)
     setError('')
@@ -56,7 +68,7 @@ export default function GeneratePage() {
     }, 2500)
 
     try {
-      const result = await generateWebsite(prompt)
+      const result = await generateWebsite(prompt, '', selectedModel)
       const html = result?.html || ''
 
       clearInterval(stepInterval)
@@ -68,16 +80,20 @@ export default function GeneratePage() {
         return
       }
 
+      await deductCredits(modelConfig.credits)
+
       const project = await createProject(user.uid, { name: prompt.split('.')[0].slice(0, 50) || 'AI Generated Site', generatedHtml: html, prompt })
       if (!project?.id) { setError('Failed to save project'); setGenerating(false); generatingRef.current = false; return }
 
       await incrementAiGenerations()
-      navigate(`/preview/${project.id}`, { replace: true })
+      navigate(`/preview/${project.id}?model=${selectedModel}`, { replace: true })
       return
     } catch (err) {
       clearInterval(stepInterval)
       const msg = err.message || ''
-      if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
+      if (msg.includes('Insufficient credits') || msg.includes('credits')) {
+        setError(msg)
+      } else if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
         if (msg.includes('prepayment') || msg.includes('prepay') || msg.includes('credits depleted')) {
           setError('Gemini API: prepay credits depleted. Go to https://ai.studio/projects to add funds or switch to pay-as-you-go.')
         } else {
@@ -92,8 +108,11 @@ export default function GeneratePage() {
   }
 
   const handleQuickGenerate = (itemPrompt) => {
-    navigate(`/generate?prompt=${encodeURIComponent(itemPrompt)}`)
+    navigate(`/generate?prompt=${encodeURIComponent(itemPrompt)}&model=${selectedModel}`)
   }
+
+  const balance = getCreditBalance()
+  const selectedModelConfig = MODELS.find(m => m.id === selectedModel) || MODELS[0]
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -103,7 +122,10 @@ export default function GeneratePage() {
             <ArrowLeft size={16} /> Back
           </button>
           <h1 className="text-lg font-semibold text-gray-900">WebForge AI</h1>
-          <div className="w-16" />
+          <button onClick={() => setShowBuyModal(true)} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-medium text-indigo-700 transition-all">
+            <Coins size={14} className="text-indigo-500" />
+            <span>{balance.total} credits</span>
+          </button>
         </div>
 
         {!generating && (
@@ -116,11 +138,14 @@ export default function GeneratePage() {
               <p className="text-gray-500 text-lg">Describe your website and AI will generate it in seconds</p>
             </div>
 
-            {profile?.usage && (
-              <div className="text-center mb-4 text-xs text-gray-400">
-                {profile.usage.aiGenerationsUsed || 0} / {PLANS[profile?.usage?.plan || 'free']?.aiGenerations || '?'} generations used
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <ModelSelector selected={selectedModel} onSelect={setSelectedModel} disabled={generating} />
               </div>
-            )}
+              <span className="text-xs text-gray-400">
+                Costs <strong>{selectedModelConfig.credits}</strong> credit{selectedModelConfig.credits > 1 ? 's' : ''}
+              </span>
+            </div>
 
             <div className="relative">
               <textarea
@@ -138,7 +163,7 @@ export default function GeneratePage() {
 
             <Button onClick={handleGenerate} disabled={!prompt.trim() || generating} className="w-full mt-4 py-3 text-base shadow-sm">
               <Sparkles size={18} className="mr-2" />
-              Generate Website
+              Generate Website ({selectedModelConfig.credits} credit{selectedModelConfig.credits > 1 ? 's' : ''})
             </Button>
 
             {error && (
@@ -168,7 +193,7 @@ export default function GeneratePage() {
             </div>
 
             <div className="mt-12 text-center">
-              <p className="text-xs text-gray-400">Powered by Gemini 2.5 Flash Lite</p>
+              <p className="text-xs text-gray-400">Powered by Gemini 2.5 Flash Lite &middot; {balance.total} credits remaining</p>
             </div>
           </div>
         )}
@@ -223,6 +248,7 @@ export default function GeneratePage() {
           </div>
         )}
       </div>
+      <BuyCreditsModal isOpen={showBuyModal} onClose={() => setShowBuyModal(false)} />
     </div>
   )
 }

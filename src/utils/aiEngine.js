@@ -362,11 +362,11 @@ function generateSectionData(sectionType, business, promptLower) {
   return data[sectionType] || {}
 }
 
-export async function generateWebsite(prompt, currentHtml = '') {
+export async function generateWebsite(prompt, currentHtml = '', model = 'gemini-2.5-flash-lite') {
   const fallbackSections = generateWebsiteFromPrompt(prompt)
 
   try {
-    const backendResult = await api.generate.website({ prompt, currentHtml })
+    const backendResult = await api.generate.website({ prompt, currentHtml, model })
     const data = backendResult.data || backendResult
 
     if (data && data.html) {

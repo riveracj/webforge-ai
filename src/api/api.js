@@ -22,5 +22,6 @@ export const api = {
 
   billing: {
     createCheckoutSession: (data) => callFunction('createCheckoutSession', data),
+    getCreditBalance: () => callFunction('getCreditBalance'),
   },
 }

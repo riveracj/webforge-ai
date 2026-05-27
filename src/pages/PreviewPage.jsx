@@ -1,19 +1,25 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useEffect, useState, useRef } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useProjectStore } from '../store/projectStore'
 import { generateWebsite } from '../utils/aiEngine'
-import { ArrowLeft, Sparkles, Loader2, AlertTriangle } from 'lucide-react'
+import { MODELS } from '../utils/constants'
+import { ArrowLeft, Sparkles, Loader2, AlertTriangle, Coins } from 'lucide-react'
+import ModelSelector from '../components/generation/ModelSelector'
+import BuyCreditsModal from '../components/billing/BuyCreditsModal'
 
 export default function PreviewPage() {
   const { projectId } = useParams()
   const navigate = useNavigate()
-  const { canGenerateAi, incrementAiGenerations } = useAuthStore()
+  const [searchParams] = useSearchParams()
+  const { canGenerateAi, canAffordGeneration, getCreditBalance, deductCredits } = useAuthStore()
   const { currentProject, loading, getProject, updateProject } = useProjectStore()
   const [html, setHtml] = useState('')
   const [followUpPrompt, setFollowUpPrompt] = useState('')
   const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState('')
+  const [selectedModel, setSelectedModel] = useState(searchParams.get('model') || 'gemini-2.5-flash-lite')
+  const [showBuyModal, setShowBuyModal] = useState(false)
   const iframeRef = useRef(null)
   const blobUrlRef = useRef(null)
   const regeneratingRef = useRef(false)
@@ -43,25 +49,41 @@ export default function PreviewPage() {
 
   const handleRegenerate = async () => {
     if (!followUpPrompt.trim() || regeneratingRef.current) return
-    if (!canGenerateAi()) { setError('AI generations used up. Upgrade to Pro for more.'); return }
+    if (!canGenerateAi()) { setError('AI generations used up.'); return }
+
+    const modelConfig = MODELS.find(m => m.id === selectedModel) || MODELS[0]
+    if (!canAffordGeneration(modelConfig.credits)) {
+      setError(`Insufficient credits. This model costs ${modelConfig.credits} credit(s).`)
+      return
+    }
+
     regeneratingRef.current = true
     setRegenerating(true)
     setError('')
     try {
-      const result = await generateWebsite(followUpPrompt, html)
+      const result = await generateWebsite(followUpPrompt, html, selectedModel)
       if (result?.html) {
+        await deductCredits(modelConfig.credits)
         setHtml(result.html)
-        await incrementAiGenerations()
         if (projectId) await updateProject(projectId, { generatedHtml: result.html })
       }
     } catch (err) {
       const msg = err.message || ''
-      setError(msg.includes('429') || msg.includes('quota') ? (msg.includes('prepayment') || msg.includes('prepay') ? 'Gemini prepay credits depleted. Add funds at https://ai.studio/projects' : 'Gemini quota exceeded. Try again in a minute.') : msg || 'Regeneration failed.')
+      if (msg.includes('Insufficient credits')) {
+        setError(msg)
+      } else if (msg.includes('429') || msg.includes('quota')) {
+        setError(msg.includes('prepayment') || msg.includes('prepay') ? 'Gemini prepay credits depleted. Add funds at https://ai.studio/projects' : 'Gemini quota exceeded. Try again in a minute.')
+      } else {
+        setError(msg || 'Regeneration failed.')
+      }
     }
     setRegenerating(false)
     regeneratingRef.current = false
     setFollowUpPrompt('')
   }
+
+  const balance = getCreditBalance()
+  const selectedModelConfig = MODELS.find(m => m.id === selectedModel) || MODELS[0]
 
   if (loading && !html) {
     return (
@@ -89,12 +111,19 @@ export default function PreviewPage() {
           </button>
           <span className="text-sm font-medium text-gray-700 truncate max-w-[200px]">{currentProject?.name || 'Website'}</span>
         </div>
-        {regenerating && (
-          <div className="flex items-center gap-2 text-sm text-indigo-600">
-            <Loader2 size={14} className="animate-spin" />
-            Regenerating...
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {regenerating ? (
+            <div className="flex items-center gap-2 text-sm text-indigo-600">
+              <Loader2 size={14} className="animate-spin" />
+              Regenerating...
+            </div>
+          ) : (
+            <button onClick={() => setShowBuyModal(true)} className="flex items-center gap-1 px-2 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-medium text-indigo-700 transition-all">
+              <Coins size={12} />
+              {balance.total}
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="flex-1 relative">
@@ -113,23 +142,31 @@ export default function PreviewPage() {
         )}
 
         <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white/90 to-transparent pt-12">
-          <div className="max-w-2xl mx-auto flex items-center gap-2">
-            <textarea
-              value={followUpPrompt}
-              onChange={(e) => setFollowUpPrompt(e.target.value)}
-              placeholder="Follow-up: change colors, add a section, redesign..."
-              className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 resize-none shadow-sm"
-              rows={1}
-              onKeyDown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && handleRegenerate()}
-            />
-            <button
-              onClick={handleRegenerate}
-              disabled={regenerating || !followUpPrompt.trim()}
-              className="flex-shrink-0 flex items-center gap-1.5 px-4 py-3 rounded-xl text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-sm disabled:opacity-50"
-            >
-              {regenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              Update
-            </button>
+          <div className="max-w-2xl mx-auto">
+            <div className="flex items-center gap-2 mb-2">
+              <ModelSelector selected={selectedModel} onSelect={setSelectedModel} disabled={regenerating} />
+              <span className="text-xs text-gray-400">
+                {selectedModelConfig.credits} credit{selectedModelConfig.credits > 1 ? 's' : ''} per update
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <textarea
+                value={followUpPrompt}
+                onChange={(e) => setFollowUpPrompt(e.target.value)}
+                placeholder="Follow-up: change colors, add a section, redesign..."
+                className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 resize-none shadow-sm"
+                rows={1}
+                onKeyDown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && handleRegenerate()}
+              />
+              <button
+                onClick={handleRegenerate}
+                disabled={regenerating || !followUpPrompt.trim()}
+                className="flex-shrink-0 flex items-center gap-1.5 px-4 py-3 rounded-xl text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-sm disabled:opacity-50"
+              >
+                {regenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                Update
+              </button>
+            </div>
           </div>
           {error && (
             <div className="max-w-2xl mx-auto mt-2 flex items-center gap-1.5 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
@@ -140,6 +177,7 @@ export default function PreviewPage() {
           )}
         </div>
       </div>
+      <BuyCreditsModal isOpen={showBuyModal} onClose={() => setShowBuyModal(false)} />
     </div>
   )
 }

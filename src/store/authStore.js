@@ -9,13 +9,7 @@ import {
 } from 'firebase/auth'
 import { doc, setDoc, getDoc, updateDoc, increment } from 'firebase/firestore'
 import { auth, db } from '../config/firebase'
-import { PLANS } from '../utils/constants'
-
-const DEFAULT_USAGE = {
-  projectCount: 0,
-  aiGenerationsUsed: 0,
-  plan: 'free',
-}
+import { PLANS, DEFAULT_USAGE, SIGNUP_CREDIT_GRANTS } from '../utils/constants'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -110,6 +104,49 @@ export const useAuthStore = create((set, get) => ({
     })
   },
 
+  deductCredits: async (modelCredits) => {
+    const { user, profile } = get()
+    if (!user || !profile?.usage) return
+    const u = profile.usage
+    const freeAvail = (u.freeCreditsTotal || 0) - (u.freeCreditsUsed || 0)
+    const updates = {}
+    const local = { ...u }
+
+    if (freeAvail >= modelCredits) {
+      updates['usage.freeCreditsUsed'] = increment(modelCredits)
+      local.freeCreditsUsed = (u.freeCreditsUsed || 0) + modelCredits
+    } else if (freeAvail > 0) {
+      updates['usage.freeCreditsUsed'] = increment(freeAvail)
+      local.freeCreditsUsed = (u.freeCreditsUsed || 0) + freeAvail
+      const remaining = modelCredits - freeAvail
+      updates['usage.purchasedCredits'] = increment(-remaining)
+      local.purchasedCredits = (u.purchasedCredits || 0) - remaining
+    } else {
+      updates['usage.purchasedCredits'] = increment(-modelCredits)
+      local.purchasedCredits = (u.purchasedCredits || 0) - modelCredits
+    }
+    updates['usage.aiGenerationsUsed'] = increment(1)
+
+    await updateDoc(doc(db, 'users', user.uid), updates)
+    set({
+      profile: profile ? { ...profile, usage: local } : null,
+    })
+  },
+
+  getCreditBalance: () => {
+    const { profile } = get()
+    const u = profile?.usage || DEFAULT_USAGE
+    const freeAvail = (u.freeCreditsTotal || 0) - (u.freeCreditsUsed || 0)
+    return { free: Math.max(0, freeAvail), purchased: u.purchasedCredits || 0, total: Math.max(0, freeAvail) + (u.purchasedCredits || 0) }
+  },
+
+  canAffordGeneration: (modelCredits) => {
+    const { profile } = get()
+    const u = profile?.usage || DEFAULT_USAGE
+    const freeAvail = (u.freeCreditsTotal || 0) - (u.freeCreditsUsed || 0)
+    return Math.max(0, freeAvail) + (u.purchasedCredits || 0) >= modelCredits
+  },
+
   getPlan: () => {
     const { profile } = get()
     return profile?.usage?.plan || 'free'
@@ -120,12 +157,5 @@ export const useAuthStore = create((set, get) => ({
     const usage = profile?.usage || DEFAULT_USAGE
     const plan = usage.plan || 'free'
     return usage.projectCount < PLANS[plan]?.projects
-  },
-
-  canGenerateAi: () => {
-    const { profile } = get()
-    const usage = profile?.usage || DEFAULT_USAGE
-    const plan = usage.plan || 'free'
-    return usage.aiGenerationsUsed < PLANS[plan]?.aiGenerations
   },
 }))

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
+import CreditBalance from '../billing/CreditBalance'
 import {
   LayoutDashboard,
   FolderOpen,
@@ -74,8 +75,10 @@ export default function DashboardLayout() {
             <Menu size={20} />
           </button>
 
-          <div className="relative ml-auto">
-            <button
+          <div className="flex items-center gap-3 ml-auto">
+            <CreditBalance />
+            <div className="relative">
+              <button
               onClick={() => setProfileOpen(!profileOpen)}
               className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
             >
@@ -106,6 +109,7 @@ export default function DashboardLayout() {
                 </div>
               </>
             )}
+          </div>
           </div>
         </header>
 
