@@ -20,19 +20,21 @@ export default function PreviewPage() {
   const [error, setError] = useState('')
   const [selectedModel, setSelectedModel] = useState(searchParams.get('model') || 'gemini-2.5-flash-lite')
   const [showBuyModal, setShowBuyModal] = useState(false)
+  const [pageLoading, setPageLoading] = useState(true)
   const iframeRef = useRef(null)
   const blobUrlRef = useRef(null)
   const regeneratingRef = useRef(false)
 
   useEffect(() => {
+    let cancelled = false
     if (projectId) {
       getProject(projectId).then((project) => {
+        if (cancelled) return
         if (project?.generatedHtml) setHtml(project.generatedHtml)
+        setPageLoading(false)
       })
     }
-    return () => {
-      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
-    }
+    return () => { cancelled = true; if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current) }
   }, [projectId])
 
   useEffect(() => {
@@ -49,6 +51,7 @@ export default function PreviewPage() {
 
   const handleRegenerate = async () => {
     if (!followUpPrompt.trim() || regeneratingRef.current) return
+
     const modelConfig = MODELS.find(m => m.id === selectedModel) || MODELS[0]
     if (!canAffordGeneration(modelConfig.credits)) {
       setError(`Insufficient credits. This model costs ${modelConfig.credits} credit(s).`)
@@ -83,7 +86,7 @@ export default function PreviewPage() {
   const balance = getCreditBalance()
   const selectedModelConfig = MODELS.find(m => m.id === selectedModel) || MODELS[0]
 
-  if (loading && !html) {
+  if (pageLoading && !html) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Loader2 size={28} className="text-indigo-500 animate-spin" />
@@ -91,7 +94,7 @@ export default function PreviewPage() {
     )
   }
 
-  if (!loading && !html) {
+  if (!pageLoading && !html) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center flex-col gap-4">
         <p className="text-gray-500 text-sm">No generated content found</p>
