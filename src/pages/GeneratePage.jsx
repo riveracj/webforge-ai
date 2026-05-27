@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Sparkles, Code, Eye, Loader2, CheckCircle, Globe, AlertTriangle } from 'lucide-react'
+import { Sparkles, Loader2, CheckCircle, AlertTriangle } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useProjectStore } from '../store/projectStore'
 import { generateWebsite } from '../utils/aiEngine'
@@ -30,31 +30,14 @@ export default function GeneratePage() {
   const [prompt, setPrompt] = useState(searchParams.get('prompt') || '')
   const [generating, setGenerating] = useState(false)
   const [currentStep, setCurrentStep] = useState(-1)
-  const [generatedHtml, setGeneratedHtml] = useState('')
-  const [projectId, setProjectId] = useState(null)
   const [error, setError] = useState('')
-  const [showPreview, setShowPreview] = useState(true)
-  const iframeRef = useRef(null)
-  const blobUrlRef = useRef(null)
   const generatingRef = useRef(false)
 
   useEffect(() => {
     if (searchParams.get('prompt') && !generating && !generatingRef.current) {
       handleGenerate()
     }
-    return () => {
-      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
-    }
   }, [])
-
-  useEffect(() => {
-    if (generatedHtml && iframeRef.current) {
-      const newUrl = URL.createObjectURL(new Blob([generatedHtml], { type: 'text/html' }))
-      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
-      blobUrlRef.current = newUrl
-      iframeRef.current.src = newUrl
-    }
-  }, [generatedHtml])
 
   const handleGenerate = async () => {
     if (!prompt.trim() || generatingRef.current) return
@@ -65,8 +48,6 @@ export default function GeneratePage() {
     generatingRef.current = true
     setGenerating(true)
     setError('')
-    setGeneratedHtml('')
-    setProjectId(null)
     setCurrentStep(0)
 
     const stepInterval = setInterval(() => {
@@ -78,7 +59,6 @@ export default function GeneratePage() {
       const html = result?.html || ''
 
       clearInterval(stepInterval)
-      setCurrentStep(STEPS.length - 1)
 
       if (!html) {
         setError('AI generation did not return valid HTML. Try a more detailed prompt.')
@@ -87,8 +67,6 @@ export default function GeneratePage() {
         return
       }
 
-      setGeneratedHtml(html)
-
       const project = await createProject(user.uid, {
         name: prompt.split('.')[0].slice(0, 50) || 'AI Generated Site',
         generatedHtml: html,
@@ -96,10 +74,16 @@ export default function GeneratePage() {
       })
 
       await incrementAiGenerations()
-      setProjectId(project.id)
+      navigate(`/preview/${project.id}`, { replace: true })
+      return
     } catch (err) {
       clearInterval(stepInterval)
-      setError(err.message || 'Generation failed. Please try again.')
+      const msg = err.message || ''
+      if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
+        setError('Gemini API quota exceeded. Enable billing at https://ai.google.dev/pricing or wait a minute and try again.')
+      } else {
+        setError(msg || 'Generation failed. Please try again.')
+      }
     }
     setGenerating(false)
     generatingRef.current = false
@@ -109,7 +93,7 @@ export default function GeneratePage() {
     navigate(`/generate?prompt=${encodeURIComponent(itemPrompt)}`)
   }
 
-  if (searchParams.get('prompt') && !generating && !generatedHtml && !error && !generatingRef.current) {
+  if (searchParams.get('prompt') && !generating && !error && !generatingRef.current) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
         <div className="text-center">
@@ -131,7 +115,7 @@ export default function GeneratePage() {
           <div className="w-16" />
         </div>
 
-        {!generating && !generatedHtml && (
+        {!generating && !error && (
           <div className="max-w-3xl mx-auto">
             <div className="text-center mb-10">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 mb-6">
@@ -227,63 +211,6 @@ export default function GeneratePage() {
           </div>
         )}
 
-        {!generating && generatedHtml && (
-          <div>
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-xl font-bold text-white">Your website is ready!</h2>
-                <p className="text-sm text-gray-400 mt-1">Review the result below</p>
-              </div>
-              <div className="flex bg-gray-900 rounded-lg border border-gray-700 p-0.5">
-                <button
-                  onClick={() => setShowPreview(true)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                    showPreview ? 'bg-indigo-500 text-white' : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <Eye size={14} /> Preview
-                </button>
-                <button
-                  onClick={() => setShowPreview(false)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                    !showPreview ? 'bg-indigo-500 text-white' : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <Code size={14} /> Code
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-              {showPreview ? (
-                <div className="relative bg-white" style={{ height: '70vh' }}>
-                  <iframe ref={iframeRef} className="w-full h-full border-0" title="Preview" sandbox="allow-scripts allow-same-origin" />
-                </div>
-              ) : (
-                <div className="p-4">
-                  <textarea
-                    value={generatedHtml}
-                    onChange={(e) => setGeneratedHtml(e.target.value)}
-                    className="w-full h-[60vh] bg-gray-950 text-gray-100 font-mono text-sm p-4 rounded-lg border border-gray-800 focus:outline-none focus:border-indigo-500 resize-none"
-                    spellCheck={false}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-center gap-4 mt-6">
-              <Button onClick={() => projectId && navigate(`/site/${projectId}`)} disabled={!projectId}>
-                <Code size={16} className="mr-2" />
-                Open in Editor
-              </Button>
-              <Button variant="secondary" onClick={() => projectId && window.open(`/preview/${projectId}`, '_blank')} disabled={!projectId}>
-                <Globe size={16} className="mr-2" />
-                Live Preview
-              </Button>
-            </div>
-          </div>
-        )}
-
         {error && (
           <div className="max-w-xl mx-auto mt-8 p-4 bg-red-900/30 border border-red-800/50 rounded-xl">
             <div className="flex items-start gap-2">
@@ -296,7 +223,7 @@ export default function GeneratePage() {
           </div>
         )}
 
-        {!generating && !generatedHtml && !error && (
+        {!generating && !error && (
           <div className="mt-16 text-center">
             <p className="text-xs text-gray-600">
               Powered by Gemini 2.0 Flash &middot; Generated pages are fully customizable
