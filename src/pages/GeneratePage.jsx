@@ -78,7 +78,11 @@ export default function GeneratePage() {
       clearInterval(stepInterval)
       const msg = err.message || ''
       if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
-        setError('Gemini API quota exceeded. Enable billing at https://ai.google.dev/pricing or wait a minute and try again.')
+        if (msg.includes('prepayment') || msg.includes('prepay') || msg.includes('credits depleted')) {
+          setError('Gemini API: prepay credits depleted. Go to https://ai.studio/projects to add funds or switch to pay-as-you-go.')
+        } else {
+          setError('Gemini API quota exceeded. Enable billing at https://ai.google.dev/pricing or wait a minute and try again.')
+        }
       } else {
         setError(msg || 'Generation failed. Please try again.')
       }

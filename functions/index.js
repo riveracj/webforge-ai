@@ -244,6 +244,9 @@ Use Google Fonts (Inter, Poppins, or similar) for typography.`
       const msg = data.error.message || ''
       console.error('Gemini API error:', msg)
       if (data.error.code === 429 || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota') || msg.includes('rate')) {
+        if (msg.includes('prepayment')) {
+          throw new Error(`Gemini API: prepay credits depleted. Go to https://ai.studio/projects to add funds or switch to pay-as-you-go.`)
+        }
         throw new Error(`Gemini API quota exceeded: ${msg}. Enable billing at https://ai.google.dev/pricing or wait a minute and retry.`)
       }
       throw new Error(`Gemini API error: ${msg}`)

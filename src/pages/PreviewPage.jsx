@@ -56,7 +56,7 @@ export default function PreviewPage() {
       }
     } catch (err) {
       const msg = err.message || ''
-      setError(msg.includes('429') || msg.includes('quota') ? 'Gemini quota exceeded. Try again in a minute.' : msg || 'Regeneration failed.')
+      setError(msg.includes('429') || msg.includes('quota') ? (msg.includes('prepayment') || msg.includes('prepay') ? 'Gemini prepay credits depleted. Add funds at https://ai.studio/projects' : 'Gemini quota exceeded. Try again in a minute.') : msg || 'Regeneration failed.')
     }
     setRegenerating(false)
     regeneratingRef.current = false
