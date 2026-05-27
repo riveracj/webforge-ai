@@ -104,19 +104,8 @@ export const createProject = onCall(async (request) => {
   const project = {
     name: sanitizeString(request.data.name) || 'Untitled Project',
     userId: request.auth.uid,
-    pages: [{
-      id: 'page-1',
-      name: 'Home',
-      slug: 'home',
-      sections: [],
-    }],
-    theme: {
-      primaryColor: '#4F46E5',
-      secondaryColor: '#7C3AED',
-      fontFamily: 'Inter',
-      headingFont: 'Inter',
-      borderRadius: '8px',
-    },
+    generatedHtml: sanitizeHtmlContent(request.data.generatedHtml),
+    prompt: sanitizeString(request.data.prompt),
     status: 'draft',
     createdAt: Date.now(),
     updatedAt: Date.now(),

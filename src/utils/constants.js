@@ -30,32 +30,8 @@ export const EMPTY_SECTION = {
 
 export const defaultProjectStructure = {
   name: 'Untitled Project',
-  pages: [
-    {
-      id: 'page-1',
-      name: 'Home',
-      slug: 'home',
-      sections: [],
-    },
-  ],
-  theme: {
-    primaryColor: '#4F46E5',
-    secondaryColor: '#7C3AED',
-    fontFamily: 'Inter',
-    headingFont: 'Inter',
-    borderRadius: '8px',
-    customCSS: '',
-  },
-  seo: {
-    title: '',
-    description: '',
-    ogImage: '',
-  },
-  settings: {
-    customDomain: null,
-    analyticsId: null,
-    password: null,
-  },
+  generatedHtml: '',
+  prompt: '',
 }
 
 export const PLANS = {
