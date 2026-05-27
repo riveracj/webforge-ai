@@ -44,6 +44,33 @@ function sanitizeHtmlContent(val) {
   return val.slice(0, 50000).trim()
 }
 
+// In-memory rate limiter: max `limit` requests per `windowMs` per user
+const rateLimitMap = new Map()
+function checkRateLimit(userId, limit = 5, windowMs = 60000) {
+  const now = Date.now()
+  const timestamps = rateLimitMap.get(userId) || []
+  const recent = timestamps.filter(t => now - t < windowMs)
+  if (recent.length >= limit) {
+    const oldest = recent[0]
+    const retryAfter = Math.ceil((oldest + windowMs - now) / 1000)
+    throw new Error(`Rate limit exceeded. Max ${limit} generations per ${windowMs / 1000}s. Retry in ${retryAfter}s.`)
+  }
+  recent.push(now)
+  rateLimitMap.set(userId, recent)
+}
+
+// Daily Firestore rate limiter
+async function checkDailyLimit(userId) {
+  const today = new Date().toISOString().slice(0, 10)
+  const ref = db.collection('rateLimits').doc(`gen_${userId}_${today}`)
+  const snap = await ref.get()
+  const count = snap.exists ? (snap.data().count || 0) : 0
+  if (count >= 200) {
+    throw new Error('Daily generation limit reached (200/day). Try again tomorrow or enable billing for higher quotas.')
+  }
+  await ref.set({ count: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+}
+
 const PLAN_LIMITS = {
   free: { projects: 3, aiGenerations: 5 },
   pro: { projects: 20, aiGenerations: 100 },
@@ -167,6 +194,9 @@ export const generateWebsite = onCall(
   const currentHtml = sanitizeHtmlContent(request.data.currentHtml)
   if (!prompt) throw new Error('Prompt is required')
 
+  checkRateLimit(request.auth.uid, 5, 60000)
+  await checkDailyLimit(request.auth.uid)
+
   const GEMINI_KEY = geminiApiKey?.value?.() || process.env.GEMINI_API_KEY || ''
 
   if (!GEMINI_KEY) {
@@ -209,7 +239,7 @@ Use Google Fonts (Inter, Poppins, or similar) for typography.`
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
