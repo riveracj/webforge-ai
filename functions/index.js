@@ -72,7 +72,7 @@ async function checkDailyLimit(userId) {
 }
 
 const PLAN_LIMITS = {
-  free: { projects: 3, aiGenerations: 5 },
+  free: { projects: 20, aiGenerations: 100 },
   pro: { projects: 20, aiGenerations: 100 },
   business: { projects: 100, aiGenerations: 500 },
 }

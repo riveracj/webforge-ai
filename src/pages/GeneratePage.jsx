@@ -4,6 +4,7 @@ import { Sparkles, Loader2, CheckCircle, AlertTriangle, ArrowLeft } from 'lucide
 import { useAuthStore } from '../store/authStore'
 import { useProjectStore } from '../store/projectStore'
 import { generateWebsite } from '../utils/aiEngine'
+import { PLANS } from '../utils/constants'
 import Button from '../components/ui/Button'
 
 const STEPS = [
@@ -113,7 +114,7 @@ export default function GeneratePage() {
 
             {profile?.usage && (
               <div className="text-center mb-4 text-xs text-gray-400">
-                {profile.usage.aiGenerationsUsed || 0} / {profile?.usage?.plan === 'free' ? '5' : '100'} generations used
+                {profile.usage.aiGenerationsUsed || 0} / {PLANS[profile?.usage?.plan || 'free']?.aiGenerations || '?'} generations used
               </div>
             )}
 

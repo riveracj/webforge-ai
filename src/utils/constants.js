@@ -39,7 +39,7 @@ export const PLANS = {
     name: 'Free',
     projects: 3,
     pages: 1,
-    aiGenerations: 5,
+    aiGenerations: 100,
     customDomain: false,
     exportHtml: false,
     price: 0,
