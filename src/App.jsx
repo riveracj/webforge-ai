@@ -9,10 +9,8 @@ const LandingPage = lazy(() => import('./pages/LandingPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
-const BuilderPage = lazy(() => import('./pages/BuilderPage'))
 const PreviewPage = lazy(() => import('./pages/PreviewPage'))
 const GeneratePage = lazy(() => import('./pages/GeneratePage'))
-const SitePage = lazy(() => import('./pages/SitePage'))
 
 function PageFallback() {
   return (
@@ -54,15 +52,6 @@ export default function App() {
           }
         />
         <Route
-          path="/site/:projectId"
-          element={
-            <ProtectedRoute>
-              <SitePage />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
           element={
             <ProtectedRoute>
               <DashboardLayout />
@@ -70,25 +59,7 @@ export default function App() {
           }
         >
           <Route path="/dashboard" element={<DashboardPage />} />
-
         </Route>
-
-        <Route
-          path="/builder/:projectId"
-          element={
-            <ProtectedRoute>
-              <BuilderPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/builder/new"
-          element={
-            <ProtectedRoute>
-              <BuilderPage />
-            </ProtectedRoute>
-          }
-        />
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

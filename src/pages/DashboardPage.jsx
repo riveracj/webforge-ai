@@ -47,7 +47,7 @@ export default function DashboardPage() {
   }
 
   const handleOpenSite = (project) => {
-    navigate(project.generatedHtml ? `/site/${project.id}` : `/preview/${project.id}`)
+    navigate(`/preview/${project.id}`)
   }
 
   return (
