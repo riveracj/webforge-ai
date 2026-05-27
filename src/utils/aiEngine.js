@@ -362,11 +362,11 @@ function generateSectionData(sectionType, business, promptLower) {
   return data[sectionType] || {}
 }
 
-export async function generateWebsite(prompt) {
+export async function generateWebsite(prompt, currentHtml = '') {
   const fallbackSections = generateWebsiteFromPrompt(prompt)
 
   try {
-    const backendResult = await api.generate.website({ prompt })
+    const backendResult = await api.generate.website({ prompt, currentHtml })
     const data = backendResult.data || backendResult
 
     if (data && data.html) {

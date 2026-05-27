@@ -159,6 +159,7 @@ export const generateWebsite = onCall(
   requireFields(request.data, ['prompt'])
 
   const prompt = sanitizeString(request.data.prompt)
+  const currentHtml = sanitizeString(request.data.currentHtml)
   if (!prompt) throw new Error('Prompt is required')
 
   const GEMINI_KEY = geminiApiKey?.value?.() || process.env.GEMINI_API_KEY || ''
@@ -168,7 +169,19 @@ export const generateWebsite = onCall(
     return { html: generateFallbackHtml(prompt) }
   }
 
-  const systemPrompt = `You are an expert web designer AI. Generate a complete, production-quality single-page HTML website based on the user's description.
+  const isFollowUp = !!currentHtml
+
+  const systemPrompt = isFollowUp
+    ? `You are an expert web designer AI. You will receive an existing HTML page and a user request describing what to change. Your job is to modify the existing HTML to fulfill the request while preserving everything else.
+
+Rules:
+- Return ONLY the modified HTML code inside \`\`\`html ... \`\`\` markers
+- PRESERVE the existing design, layout, colors, fonts and content UNLESS the user explicitly asks to change them
+- Make surgical, targeted changes — do not rewrite the entire page unless the user asks for a complete redesign
+- Keep all existing CSS styles, JS functionality, and page structure intact
+- Maintain responsive design and accessibility
+- The output must be a complete <!DOCTYPE html> document`
+    : `You are an expert web designer AI. Generate a complete, production-quality single-page HTML website based on the user's description.
 
 Requirements:
 - Return ONLY the raw HTML code inside \`\`\`html ... \`\`\` markers
@@ -185,6 +198,10 @@ Requirements:
 The HTML must be a complete page with: <!DOCTYPE html>, <html>, <head>, <body> tags.
 Use Google Fonts (Inter, Poppins, or similar) for typography.`
 
+  const userMessage = isFollowUp
+    ? `Existing HTML:\n\n${currentHtml}\n\nUser request: ${prompt}\n\nModify the existing HTML according to this request. Return the complete modified HTML document.`
+    : `User request: ${prompt}`
+
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
@@ -192,7 +209,7 @@ Use Google Fonts (Inter, Poppins, or similar) for typography.`
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `${systemPrompt}\n\nUser request: ${prompt}` }] }],
+          contents: [{ parts: [{ text: `${systemPrompt}\n\n${userMessage}` }] }],
           generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
         }),
       }

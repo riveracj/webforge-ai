@@ -50,7 +50,7 @@ export default function SitePage() {
     if (!regenPrompt.trim()) return
     setRegenerating(true)
     try {
-      const result = await generateWebsite(regenPrompt)
+      const result = await generateWebsite(regenPrompt, html)
       if (result?.html) {
         setHtml(result.html)
         await updateProject(projectId, { generatedHtml: result.html, prompt: regenPrompt })

@@ -45,7 +45,7 @@ export default function BuilderPage() {
     if (!followUpPrompt.trim()) return
     setRegenerating(true)
     try {
-      const result = await generateWebsite(followUpPrompt)
+      const result = await generateWebsite(followUpPrompt, html)
       if (result?.html) {
         setHtml(result.html)
         if (projectId) await updateProject(projectId, { generatedHtml: result.html })
