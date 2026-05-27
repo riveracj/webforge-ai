@@ -12,7 +12,7 @@ export default function PreviewPage() {
   const { projectId } = useParams()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { canGenerateAi, canAffordGeneration, getCreditBalance, deductCredits } = useAuthStore()
+  const { canAffordGeneration, getCreditBalance, deductCredits } = useAuthStore()
   const { currentProject, loading, getProject, updateProject } = useProjectStore()
   const [html, setHtml] = useState('')
   const [followUpPrompt, setFollowUpPrompt] = useState('')
@@ -49,8 +49,6 @@ export default function PreviewPage() {
 
   const handleRegenerate = async () => {
     if (!followUpPrompt.trim() || regeneratingRef.current) return
-    if (!canGenerateAi()) { setError('AI generations used up.'); return }
-
     const modelConfig = MODELS.find(m => m.id === selectedModel) || MODELS[0]
     if (!canAffordGeneration(modelConfig.credits)) {
       setError(`Insufficient credits. This model costs ${modelConfig.credits} credit(s).`)

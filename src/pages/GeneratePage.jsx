@@ -28,7 +28,7 @@ const QUICK_PROMPTS = [
 export default function GeneratePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { user, profile, canGenerateAi, canAffordGeneration, getCreditBalance, deductCredits, incrementAiGenerations } = useAuthStore()
+  const { user, profile, canAffordGeneration, getCreditBalance, deductCredits, incrementAiGenerations } = useAuthStore()
   const { createProject } = useProjectStore()
   const [prompt, setPrompt] = useState(searchParams.get('prompt') || '')
   const [generating, setGenerating] = useState(false)
@@ -46,11 +46,6 @@ export default function GeneratePage() {
 
   const handleGenerate = async () => {
     if (!prompt.trim() || generatingRef.current) return
-
-    if (!canGenerateAi()) {
-      setError('You have used all your AI generations. Upgrade to Pro for more.')
-      return
-    }
 
     const modelConfig = MODELS.find(m => m.id === selectedModel) || MODELS[0]
     if (!canAffordGeneration(modelConfig.credits)) {

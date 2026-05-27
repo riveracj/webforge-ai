@@ -140,6 +140,10 @@ export const useAuthStore = create((set, get) => ({
     return { free: Math.max(0, freeAvail), purchased: u.purchasedCredits || 0, total: Math.max(0, freeAvail) + (u.purchasedCredits || 0) }
   },
 
+  canGenerateAi: () => {
+    return true
+  },
+
   canAffordGeneration: (modelCredits) => {
     const { profile } = get()
     const u = profile?.usage || DEFAULT_USAGE
