@@ -3,13 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useProjectStore } from '../store/projectStore'
 import { generateWebsite } from '../utils/aiEngine'
-import { Maximize2, Minimize2, ZoomIn, ZoomOut, Sparkles, Loader2, Code, Eye, ArrowLeft, Save } from 'lucide-react'
+import { ZoomIn, ZoomOut, Sparkles, Loader2, Code, Eye, ArrowLeft, Save, AlertTriangle } from 'lucide-react'
 import Button from '../components/ui/Button'
 
 export default function BuilderPage() {
   const { projectId } = useParams()
   const navigate = useNavigate()
-  const { user } = useAuthStore()
+  const { canGenerateAi, incrementAiGenerations } = useAuthStore()
   const { currentProject, loading, getProject, updateProject } = useProjectStore()
   const [html, setHtml] = useState('')
   const [showCode, setShowCode] = useState(false)
@@ -17,7 +17,11 @@ export default function BuilderPage() {
   const [zoom, setZoom] = useState(1)
   const [followUpPrompt, setFollowUpPrompt] = useState('')
   const [regenerating, setRegenerating] = useState(false)
+  const [error, setError] = useState('')
   const iframeRef = useRef(null)
+  const blobUrlRef = useRef(null)
+  const regeneratingRef = useRef(false)
+  const autoSaveRef = useRef(null)
 
   useEffect(() => {
     if (projectId && projectId !== 'new') {
@@ -25,14 +29,31 @@ export default function BuilderPage() {
         if (project?.generatedHtml) setHtml(project.generatedHtml)
       })
     }
+    return () => {
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+      if (autoSaveRef.current) clearInterval(autoSaveRef.current)
+    }
   }, [projectId])
 
   useEffect(() => {
     if (html && iframeRef.current) {
-      const blob = new Blob([html], { type: 'text/html' })
-      iframeRef.current.src = URL.createObjectURL(blob)
+      const newUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+      blobUrlRef.current = newUrl
+      iframeRef.current.src = newUrl
     }
   }, [html])
+
+  // Auto-save every 30s
+  useEffect(() => {
+    if (!projectId || !html) return
+    autoSaveRef.current = setInterval(() => {
+      updateProject(projectId, { generatedHtml: html }).catch(console.error)
+    }, 30000)
+    return () => {
+      if (autoSaveRef.current) clearInterval(autoSaveRef.current)
+    }
+  }, [projectId, html])
 
   const handleSave = async () => {
     if (!projectId) return
@@ -42,18 +63,26 @@ export default function BuilderPage() {
   }
 
   const handleRegenerate = async () => {
-    if (!followUpPrompt.trim()) return
+    if (!followUpPrompt.trim() || regeneratingRef.current) return
+    if (!canGenerateAi()) {
+      setError('You have used all your AI generations. Upgrade to Pro for more.')
+      return
+    }
+    regeneratingRef.current = true
     setRegenerating(true)
+    setError('')
     try {
       const result = await generateWebsite(followUpPrompt, html)
       if (result?.html) {
         setHtml(result.html)
+        await incrementAiGenerations()
         if (projectId) await updateProject(projectId, { generatedHtml: result.html })
       }
     } catch (err) {
-      console.error('Regeneration failed:', err)
+      setError(err.message || 'Regeneration failed.')
     }
     setRegenerating(false)
+    regeneratingRef.current = false
     setFollowUpPrompt('')
   }
 
@@ -69,6 +98,17 @@ export default function BuilderPage() {
   const zoomIn = () => setZoom(z => Math.min(z + 0.25, 3))
   const zoomOut = () => setZoom(z => Math.max(z - 0.25, 0.25))
   const zoomReset = () => setZoom(1)
+
+  // Re-render preview when toggling back from code view
+  const toggleView = (code) => {
+    if (!code && blobUrlRef.current && iframeRef.current && html) {
+      const newUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+      URL.revokeObjectURL(blobUrlRef.current)
+      blobUrlRef.current = newUrl
+      iframeRef.current.src = newUrl
+    }
+    setShowCode(code)
+  }
 
   if (loading && !currentProject) {
     return (
@@ -103,13 +143,13 @@ export default function BuilderPage() {
           </div>
           <div className="flex bg-gray-800 rounded-lg border border-gray-700 p-0.5">
             <button
-              onClick={() => setShowCode(false)}
+              onClick={() => toggleView(false)}
               className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                 !showCode ? 'bg-indigo-500 text-white' : 'text-gray-400 hover:text-white'
               }`}
             ><Eye size={14} /> Preview</button>
             <button
-              onClick={() => setShowCode(true)}
+              onClick={() => toggleView(true)}
               className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                 showCode ? 'bg-indigo-500 text-white' : 'text-gray-400 hover:text-white'
               }`}
@@ -140,6 +180,13 @@ export default function BuilderPage() {
             Regenerate
           </button>
         </div>
+        {error && (
+          <div className="flex items-center gap-2 mt-2 text-xs text-red-400">
+            <AlertTriangle size={12} />
+            {error}
+            <button onClick={() => setError('')} className="underline hover:text-red-300">Dismiss</button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto bg-gray-900 flex items-start justify-center p-4">
@@ -149,7 +196,7 @@ export default function BuilderPage() {
             transform: `scale(${zoom})`,
             width: '1200px',
             minHeight: '800px',
-            maxWidth: '100%',
+            maxWidth: `${100 / zoom}%`,
           }}
         >
           {showCode ? (
@@ -160,13 +207,13 @@ export default function BuilderPage() {
               spellCheck={false}
             />
           ) : (
-            <iframe ref={iframeRef} className="w-full border-0" style={{ minHeight: '600px', height: html ? 'auto' : '600px' }} title="Preview" />
+            <iframe ref={iframeRef} className="w-full border-0" style={{ minHeight: '600px', height: html ? 'auto' : '600px' }} title="Preview" sandbox="allow-scripts allow-same-origin" />
           )}
         </div>
       </div>
 
       <footer className="px-4 py-1.5 bg-gray-900 border-t border-gray-800 flex items-center justify-between text-xs text-gray-500 flex-shrink-0">
-        <span>Ctrl+S to save</span>
+        <span>Ctrl+S to save &middot; Auto-saves every 30s</span>
         <span>Follow-up prompts regenerate the full page</span>
       </footer>
     </div>

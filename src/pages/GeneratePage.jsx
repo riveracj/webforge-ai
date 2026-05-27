@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Sparkles, ArrowRight, Code, Eye, Loader2, CheckCircle, Save, Globe } from 'lucide-react'
+import { Sparkles, Code, Eye, Loader2, CheckCircle, Globe, AlertTriangle } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useProjectStore } from '../store/projectStore'
 import { generateWebsite } from '../utils/aiEngine'
@@ -25,7 +25,7 @@ const QUICK_PROMPTS = [
 export default function GeneratePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { user } = useAuthStore()
+  const { user, profile, canGenerateAi, incrementAiGenerations } = useAuthStore()
   const { createProject } = useProjectStore()
   const [prompt, setPrompt] = useState(searchParams.get('prompt') || '')
   const [generating, setGenerating] = useState(false)
@@ -35,22 +35,34 @@ export default function GeneratePage() {
   const [error, setError] = useState('')
   const [showPreview, setShowPreview] = useState(true)
   const iframeRef = useRef(null)
+  const blobUrlRef = useRef(null)
+  const generatingRef = useRef(false)
 
   useEffect(() => {
-    if (searchParams.get('prompt') && !generating) {
+    if (searchParams.get('prompt') && !generating && !generatingRef.current) {
       handleGenerate()
+    }
+    return () => {
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
     }
   }, [])
 
   useEffect(() => {
     if (generatedHtml && iframeRef.current) {
-      const blob = new Blob([generatedHtml], { type: 'text/html' })
-      iframeRef.current.src = URL.createObjectURL(blob)
+      const newUrl = URL.createObjectURL(new Blob([generatedHtml], { type: 'text/html' }))
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+      blobUrlRef.current = newUrl
+      iframeRef.current.src = newUrl
     }
   }, [generatedHtml])
 
   const handleGenerate = async () => {
-    if (!prompt.trim()) return
+    if (!prompt.trim() || generatingRef.current) return
+    if (!canGenerateAi()) {
+      setError('You have used all your AI generations. Upgrade to Pro for more.')
+      return
+    }
+    generatingRef.current = true
     setGenerating(true)
     setError('')
     setGeneratedHtml('')
@@ -71,6 +83,7 @@ export default function GeneratePage() {
       if (!html) {
         setError('AI generation did not return valid HTML. Try a more detailed prompt.')
         setGenerating(false)
+        generatingRef.current = false
         return
       }
 
@@ -82,22 +95,29 @@ export default function GeneratePage() {
         prompt,
       })
 
+      await incrementAiGenerations()
       setProjectId(project.id)
     } catch (err) {
       clearInterval(stepInterval)
       setError(err.message || 'Generation failed. Please try again.')
     }
     setGenerating(false)
+    generatingRef.current = false
   }
 
-  const handleOpenEditor = () => {
-    if (projectId) navigate(`/site/${projectId}`)
+  const handleQuickGenerate = (itemPrompt) => {
+    navigate(`/generate?prompt=${encodeURIComponent(itemPrompt)}`)
   }
 
-  const handleOpenPreview = () => {
-    if (projectId) {
-      window.open(`/preview/${projectId}`, '_blank')
-    }
+  if (searchParams.get('prompt') && !generating && !generatedHtml && !error && !generatingRef.current) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 size={32} className="text-indigo-400 animate-spin mx-auto mb-4" />
+          <p className="text-gray-400">Generating your website...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -121,6 +141,12 @@ export default function GeneratePage() {
               <p className="text-gray-400 text-lg">Describe your website and AI will generate it in seconds</p>
             </div>
 
+            {profile?.usage && (
+              <div className="text-center mb-4 text-xs text-gray-500">
+                {profile.usage.aiGenerationsUsed || 0} / {profile?.usage?.plan === 'free' ? 5 : 100} generations used
+              </div>
+            )}
+
             <div className="relative">
               <textarea
                 value={prompt}
@@ -128,15 +154,16 @@ export default function GeneratePage() {
                 placeholder="e.g. A modern SaaS landing page for a project management tool with pricing, features, and a contact form..."
                 className="w-full h-36 bg-gray-900 border border-gray-700 rounded-xl p-5 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none text-base"
                 onKeyDown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && handleGenerate()}
+                maxLength={2000}
               />
               <div className="absolute bottom-4 right-4 text-xs text-gray-500">
-                {prompt.length} chars &middot; Ctrl+Enter to generate
+                {prompt.length}/2000 &middot; Ctrl+Enter to generate
               </div>
             </div>
 
             <Button
               onClick={handleGenerate}
-              disabled={!prompt.trim()}
+              disabled={!prompt.trim() || generating}
               className="w-full mt-4 py-3 text-base"
             >
               <Sparkles size={18} className="mr-2" />
@@ -149,9 +176,7 @@ export default function GeneratePage() {
                 {QUICK_PROMPTS.map((item) => (
                   <button
                     key={item.label}
-                    onClick={() => {
-                      setPrompt(item.prompt)
-                    }}
+                    onClick={() => handleQuickGenerate(item.prompt)}
                     className="p-3 bg-gray-900 border border-gray-800 rounded-xl hover:border-indigo-500/50 hover:bg-gray-800/50 transition-all text-left"
                   >
                     <span className="text-sm font-medium text-gray-300 block">{item.label}</span>
@@ -209,32 +234,30 @@ export default function GeneratePage() {
                 <h2 className="text-xl font-bold text-white">Your website is ready!</h2>
                 <p className="text-sm text-gray-400 mt-1">Review the result below</p>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="flex bg-gray-900 rounded-lg border border-gray-700 p-0.5">
-                  <button
-                    onClick={() => setShowPreview(true)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                      showPreview ? 'bg-indigo-500 text-white' : 'text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    <Eye size={14} /> Preview
-                  </button>
-                  <button
-                    onClick={() => setShowPreview(false)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                      !showPreview ? 'bg-indigo-500 text-white' : 'text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    <Code size={14} /> Code
-                  </button>
-                </div>
+              <div className="flex bg-gray-900 rounded-lg border border-gray-700 p-0.5">
+                <button
+                  onClick={() => setShowPreview(true)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    showPreview ? 'bg-indigo-500 text-white' : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <Eye size={14} /> Preview
+                </button>
+                <button
+                  onClick={() => setShowPreview(false)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    !showPreview ? 'bg-indigo-500 text-white' : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <Code size={14} /> Code
+                </button>
               </div>
             </div>
 
             <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
               {showPreview ? (
                 <div className="relative bg-white" style={{ height: '70vh' }}>
-                  <iframe ref={iframeRef} className="w-full h-full border-0" title="Preview" />
+                  <iframe ref={iframeRef} className="w-full h-full border-0" title="Preview" sandbox="allow-scripts allow-same-origin" />
                 </div>
               ) : (
                 <div className="p-4">
@@ -249,11 +272,11 @@ export default function GeneratePage() {
             </div>
 
             <div className="flex items-center justify-center gap-4 mt-6">
-              <Button onClick={handleOpenEditor} disabled={!projectId}>
+              <Button onClick={() => projectId && navigate(`/site/${projectId}`)} disabled={!projectId}>
                 <Code size={16} className="mr-2" />
                 Open in Editor
               </Button>
-              <Button variant="secondary" onClick={handleOpenPreview} disabled={!projectId}>
+              <Button variant="secondary" onClick={() => projectId && window.open(`/preview/${projectId}`, '_blank')} disabled={!projectId}>
                 <Globe size={16} className="mr-2" />
                 Live Preview
               </Button>
@@ -263,8 +286,11 @@ export default function GeneratePage() {
 
         {error && (
           <div className="max-w-xl mx-auto mt-8 p-4 bg-red-900/30 border border-red-800/50 rounded-xl">
-            <p className="text-red-400 text-sm">{error}</p>
-            <button onClick={() => { setError(''); setGenerating(false) }} className="mt-3 text-xs text-red-400 hover:text-red-300 underline">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={16} className="text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+            <button onClick={() => { setError(''); setGenerating(false); generatingRef.current = false }} className="mt-3 text-xs text-red-400 hover:text-red-300 underline">
               Try again
             </button>
           </div>

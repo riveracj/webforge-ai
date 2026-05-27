@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Code, Eye, Save, Globe, ArrowLeft, Loader2, Sparkles } from 'lucide-react'
+import { Code, Eye, Save, Globe, ArrowLeft, Loader2, Sparkles, AlertTriangle } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useProjectStore } from '../store/projectStore'
 import { generateWebsite } from '../utils/aiEngine'
@@ -9,7 +9,7 @@ import Button from '../components/ui/Button'
 export default function SitePage() {
   const { projectId } = useParams()
   const navigate = useNavigate()
-  const { user } = useAuthStore()
+  const { canGenerateAi, incrementAiGenerations } = useAuthStore()
   const { currentProject, loading, getProject, updateProject } = useProjectStore()
   const [html, setHtml] = useState('')
   const [showCode, setShowCode] = useState(false)
@@ -17,10 +17,16 @@ export default function SitePage() {
   const [regenerating, setRegenerating] = useState(false)
   const [showRegenPrompt, setShowRegenPrompt] = useState(false)
   const [regenPrompt, setRegenPrompt] = useState('')
+  const [error, setError] = useState('')
   const iframeRef = useRef(null)
+  const blobUrlRef = useRef(null)
+  const regeneratingRef = useRef(false)
 
   useEffect(() => {
     if (projectId) getProject(projectId)
+    return () => {
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+    }
   }, [projectId])
 
   useEffect(() => {
@@ -31,8 +37,10 @@ export default function SitePage() {
 
   useEffect(() => {
     if (html && iframeRef.current) {
-      const blob = new Blob([html], { type: 'text/html' })
-      iframeRef.current.src = URL.createObjectURL(blob)
+      const newUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+      blobUrlRef.current = newUrl
+      iframeRef.current.src = newUrl
     }
   }, [html])
 
@@ -47,20 +55,37 @@ export default function SitePage() {
   }
 
   const handleRegenerate = async () => {
-    if (!regenPrompt.trim()) return
+    if (!regenPrompt.trim() || regeneratingRef.current) return
+    if (!canGenerateAi()) {
+      setError('You have used all your AI generations. Upgrade to Pro for more.')
+      return
+    }
+    regeneratingRef.current = true
     setRegenerating(true)
+    setError('')
     try {
       const result = await generateWebsite(regenPrompt, html)
       if (result?.html) {
         setHtml(result.html)
+        await incrementAiGenerations()
         await updateProject(projectId, { generatedHtml: result.html, prompt: regenPrompt })
       }
     } catch (err) {
-      console.error('Regeneration failed:', err)
+      setError(err.message || 'Regeneration failed.')
     }
     setRegenerating(false)
+    regeneratingRef.current = false
     setShowRegenPrompt(false)
     setRegenPrompt('')
+  }
+
+  const refreshPreview = () => {
+    if (blobUrlRef.current && iframeRef.current && html) {
+      const newUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+      URL.revokeObjectURL(blobUrlRef.current)
+      blobUrlRef.current = newUrl
+      iframeRef.current.src = newUrl
+    }
   }
 
   const handleKeyDown = useCallback((e) => {
@@ -109,7 +134,7 @@ export default function SitePage() {
         <div className="flex items-center gap-2">
           <div className="flex bg-gray-800 rounded-lg border border-gray-700 p-0.5">
             <button
-              onClick={() => setShowCode(false)}
+              onClick={() => { setShowCode(false); refreshPreview() }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                 !showCode ? 'bg-indigo-500 text-white' : 'text-gray-400 hover:text-white'
               }`}
@@ -154,8 +179,11 @@ export default function SitePage() {
               {regenerating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
               {regenerating ? ' Regenerating...' : ' Regenerate'}
             </Button>
-            <button onClick={() => setShowRegenPrompt(false)} className="text-gray-500 hover:text-gray-300 text-xs">Cancel</button>
+            <button onClick={() => { setShowRegenPrompt(false); setError('') }} className="text-gray-500 hover:text-gray-300 text-xs">Cancel</button>
           </div>
+          {error && (
+            <p className="flex items-center gap-1 mt-2 text-xs text-red-400"><AlertTriangle size={12} />{error}</p>
+          )}
         </div>
       )}
 
@@ -171,7 +199,7 @@ export default function SitePage() {
           </div>
         ) : (
           <div className="flex-1 bg-white">
-            <iframe ref={iframeRef} className="w-full h-full border-0" title="Website Preview" />
+            <iframe ref={iframeRef} className="w-full h-full border-0" title="Website Preview" sandbox="allow-scripts allow-same-origin" />
           </div>
         )}
       </div>

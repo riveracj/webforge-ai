@@ -34,9 +34,14 @@ function requireFields(data, fields) {
   }
 }
 
-function sanitizeString(val) {
+function sanitizeString(val, maxLen = 2000) {
   if (typeof val !== 'string') return ''
-  return val.slice(0, 2000).trim()
+  return val.slice(0, maxLen).trim()
+}
+
+function sanitizeHtmlContent(val) {
+  if (typeof val !== 'string') return ''
+  return val.slice(0, 50000).trim()
 }
 
 const PLAN_LIMITS = {
@@ -159,7 +164,7 @@ export const generateWebsite = onCall(
   requireFields(request.data, ['prompt'])
 
   const prompt = sanitizeString(request.data.prompt)
-  const currentHtml = sanitizeString(request.data.currentHtml)
+  const currentHtml = sanitizeHtmlContent(request.data.currentHtml)
   if (!prompt) throw new Error('Prompt is required')
 
   const GEMINI_KEY = geminiApiKey?.value?.() || process.env.GEMINI_API_KEY || ''
@@ -369,7 +374,7 @@ function generateStaticHtml(project) {
 }
 
 function escHtml(str) {
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
 function generateFallbackHtml(prompt) {
