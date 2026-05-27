@@ -2,10 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useProjectStore } from '../store/projectStore'
-import { Plus, Sparkles, FolderOpen, AlertTriangle, Lightbulb, ArrowRight } from 'lucide-react'
+import { Sparkles, FolderOpen, AlertTriangle, Lightbulb } from 'lucide-react'
 import Button from '../components/ui/Button'
-import Input from '../components/ui/Input'
-import Modal from '../components/ui/Modal'
 import LoadingSpinner from '../components/ui/LoadingSpinner'
 import EmptyState from '../components/ui/EmptyState'
 import ProjectCard from '../components/dashboard/ProjectCard'
@@ -21,11 +19,8 @@ const QUICK_PROMPTS = [
 
 export default function DashboardPage() {
   const { user, profile } = useAuthStore()
-  const { projects, loading, fetchProjects, createProject, cloneProject, deleteProject, error } = useProjectStore()
+  const { projects, loading, fetchProjects, cloneProject, deleteProject, error } = useProjectStore()
   const navigate = useNavigate()
-  const [showNewModal, setShowNewModal] = useState(false)
-  const [projectName, setProjectName] = useState('')
-  const [creating, setCreating] = useState(false)
   const [showUpgrade, setShowUpgrade] = useState(false)
 
   const plan = profile?.usage?.plan || 'free'
@@ -36,19 +31,6 @@ export default function DashboardPage() {
   useEffect(() => {
     if (user) fetchProjects(user.uid)
   }, [user])
-
-  const handleCreate = async () => {
-    if (!projectName.trim()) return
-    if (atLimit) { setShowNewModal(false); setShowUpgrade(true); return }
-    setCreating(true)
-    try {
-      const project = await createProject(user.uid, { name: projectName.trim() })
-      setShowNewModal(false)
-      setProjectName('')
-      navigate(`/builder/${project.id}`)
-    } catch (err) { console.error(err) }
-    setCreating(false)
-  }
 
   const handleQuickGenerate = (prompt) => {
     if (atLimit) { setShowUpgrade(true); return }
@@ -65,11 +47,7 @@ export default function DashboardPage() {
   }
 
   const handleOpenSite = (project) => {
-    if (project.generatedHtml) {
-      navigate(`/site/${project.id}`)
-    } else {
-      navigate(`/builder/${project.id}`)
-    }
+    navigate(project.generatedHtml ? `/site/${project.id}` : `/preview/${project.id}`)
   }
 
   return (
@@ -132,15 +110,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold text-gray-700">All Projects</h2>
-        <button
-          onClick={() => setShowNewModal(true)}
-          className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
-        >
-          + New Blank
-        </button>
-      </div>
+      <h2 className="text-sm font-semibold text-gray-700 mb-4">All Projects</h2>
 
       {loading ? (
         <LoadingSpinner size="lg" className="pt-10" />
@@ -165,27 +135,6 @@ export default function DashboardPage() {
           ))}
         </div>
       )}
-
-      <Modal isOpen={showNewModal} onClose={() => setShowNewModal(false)} title="Create Blank Project">
-        <div className="space-y-4">
-          {atLimit && (
-            <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-              <AlertTriangle size={16} />
-              <span>Project limit reached. <button onClick={() => { setShowNewModal(false); setShowUpgrade(true) }} className="underline font-medium">Upgrade</button></span>
-            </div>
-          )}
-          <Input
-            label="Project Name"
-            placeholder="My Awesome Website"
-            value={projectName}
-            onChange={(e) => setProjectName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-          />
-          <Button className="w-full" onClick={handleCreate} disabled={creating || !projectName.trim() || atLimit}>
-            {creating ? 'Creating...' : 'Create Project'}
-          </Button>
-        </div>
-      </Modal>
 
       {showUpgrade && <UpgradePrompt onClose={() => setShowUpgrade(false)} />}
     </div>
