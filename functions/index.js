@@ -241,26 +241,30 @@ Use Google Fonts (Inter, Poppins, or similar) for typography.`
     const data = await res.json()
 
     if (data.error) {
-      console.error('Gemini API returned error:', JSON.stringify(data.error))
-      return { html: generateFallbackHtml(prompt) }
+      const msg = data.error.message || ''
+      console.error('Gemini API error:', msg)
+      if (data.error.code === 429 || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota') || msg.includes('rate')) {
+        throw new Error(`Gemini API quota exceeded: ${msg}. Enable billing at https://ai.google.dev/pricing or wait a minute and retry.`)
+      }
+      throw new Error(`Gemini API error: ${msg}`)
     }
 
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
     if (!text) {
       console.error('Gemini returned empty response:', JSON.stringify(data))
-      return { html: generateFallbackHtml(prompt) }
+      throw new Error('Gemini returned empty response. Try a more detailed prompt.')
     }
 
     const match = text.match(/```html\s*([\s\S]*?)```/)
     const html = match ? match[1].trim() : text.replace(/```\s*/g, '').trim()
     if (!html || html.length < 100) {
       console.error('Gemini returned invalid HTML')
-      return { html: generateFallbackHtml(prompt) }
+      throw new Error('Gemini returned incomplete HTML. Try a more detailed prompt.')
     }
     return { html }
   } catch (err) {
     console.error('Gemini API error:', err.message || err)
-    return { html: generateFallbackHtml(prompt) }
+    throw new Error(err.message || 'AI generation failed. Please try again.')
   }
 })
 

@@ -385,7 +385,11 @@ export async function generateWebsite(prompt, currentHtml = '') {
       }
     }
   } catch (e) {
-    console.warn('⚠️ Gemini backend failed, using client-side:', e?.message)
+    const msg = e.message || ''
+    if (msg.includes('quota') || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('billing')) {
+      throw e
+    }
+    console.warn('⚠️ Gemini backend failed, using client-side:', msg)
   }
 
   console.log('⚙️ Using client-side generation')
